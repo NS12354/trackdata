@@ -97,6 +97,17 @@ class Settings(BaseSettings):
     # blur pass still runs on every frame. 1 disables striding.
     face_detection_stride: int = 2
 
+    # --- Orientation auto-correction ---
+    # Detect "which way is up" from content (upright faces) rather than trusting
+    # only the rotation metadata, which is sometimes missing or wrong — so a clip
+    # uploaded upside-down is corrected. Falls back to metadata when no faces are
+    # found (e.g. chest-cam clips with none in frame).
+    auto_orient: bool = True
+    orientation_sample_frames: int = 12
+    # Minimum summed face-detection score for a candidate orientation to be
+    # trusted over the metadata rotation.
+    orientation_min_score: float = 1.0
+
     # --- Face detector strategy (privacy robustness) ---
     # "union" runs BOTH YuNet (cv2.FaceDetectorYN) and MediaPipe and takes the
     # union of detections for redundancy — a face missed by one may be caught by

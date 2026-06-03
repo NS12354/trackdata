@@ -174,10 +174,16 @@ real (already-confirmed) face are recovered by gap-filling. The result reports
 `scripts/validate_anonymization.py` to measure coverage and (against labels) the
 leak rate, so the privacy claim is a number, not a guess.
 
-**Orientation.** Phone videos store a rotation flag (e.g. iPhone clips are often
-`rotation=±90`) that players honor but OpenCV ignores. The pipeline reads it via
-ffprobe and rotates decoded frames upright, so both the anonymized output and the
-hand-pose landmarks are correctly oriented.
+**Orientation (auto-corrected).** Phone videos store a rotation flag that players
+honor but OpenCV ignores; the pipeline reads it via ffprobe. That metadata is
+sometimes missing or wrong, so a clip can arrive sideways or upside-down — and to
+fix that, the anonymizer also does **content-based orientation detection**: it
+samples frames, tries all four rotations, and picks the one where face detection
+is strongest (real footage has upright faces), overriding the metadata when it
+disagrees. With no faces in frame (e.g. a chest-cam clip) it falls back to the
+metadata rotation. The decoded frames are rotated upright before processing, so
+the anonymized output and hand-pose landmarks are always correctly oriented
+(`AUTO_ORIENT`, default on).
 
 **Performance.** Anonymization is the heavy step (face detection + full-res blur +
 H.264 re-encode on CPU). Three optimizations bring it to roughly **real-time** on

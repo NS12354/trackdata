@@ -31,7 +31,8 @@ import cv2
 import numpy as np
 
 from config import settings
-from .video_meta import probe, VideoMeta, apply_rotation
+from .video_meta import VideoMeta, apply_rotation
+from .orientation import resolve_video_meta
 from .face_detector import get_face_detector
 
 Box = Tuple[float, float, float, float]  # (x0, y0, x1, y1) in pixels
@@ -242,7 +243,9 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    meta = probe(input_path)
+    # Content-aware orientation: corrects sideways/upside-down clips whose rotation
+    # metadata is missing or wrong, falling back to metadata when no faces.
+    meta = resolve_video_meta(input_path)
     pad = settings.face_box_padding
     strength = settings.blur_strength
     max_gap = max(1, int(round(settings.temporal_max_gap_seconds * meta.fps)))
