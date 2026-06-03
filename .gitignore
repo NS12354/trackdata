@@ -1,0 +1,38 @@
+# --- Python ---
+backend/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# --- Node / Next.js ---
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Env / secrets (keep the *.example templates) ---
+.env
+.env.*
+!.env.example
+!.env.docker.example
+!.env.local.example
+frontend/.env.local
+
+# --- Private data: NEVER commit footage or the DB ---
+# Keep the directory structure (.gitkeep) but ignore all contents.
+data/uploads/*
+data/anonymized/*
+data/processed/*
+data/exports/*
+data/*.db
+!data/**/.gitkeep
+
+# --- ML model weights (fetched via scripts/fetch_models.py) ---
+backend/ml_models/*.onnx
+
+# --- OS / editor ---
+.DS_Store
+*.swp

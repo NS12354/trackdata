@@ -1,0 +1,105 @@
+# Production-style local stack: Postgres + Redis + API + Celery worker(s).
+#   docker compose up --build
+# Copy .env.docker.example -> .env first and set secrets (API_KEY, DB password).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-revisent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-revisent}
+      POSTGRES_DB: ${POSTGRES_DB:-revisent}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-revisent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["api"]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-revisent}:${POSTGRES_PASSWORD:-revisent}@postgres:5432/${POSTGRES_DB:-revisent}
+      REDIS_URL: redis://redis:6379/0
+      API_KEY: ${API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOG_JSON: "true"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    ports:
+      - "8000:8000"
+    volumes:
+      - mediadata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["worker"]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-revisent}:${POSTGRES_PASSWORD:-revisent}@postgres:5432/${POSTGRES_DB:-revisent}
+      REDIS_URL: redis://redis:6379/0
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LOG_JSON: "true"
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}
+      # Local VLM for free task segmentation. Default points at an Ollama running
+      # on the host (Docker Desktop: host.docker.internal). Set FACE_DETECTOR etc.
+      # here too if you want to override pipeline defaults.
+      SEGMENTATION_PROVIDER: ${SEGMENTATION_PROVIDER:-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_VLM_MODEL: ${OLLAMA_VLM_MODEL:-moondream}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - mediadata:/data          # shares the media tree with the API
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional Celery monitoring UI at http://localhost:5555
+  flower:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["flower"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["monitoring"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  mediadata:

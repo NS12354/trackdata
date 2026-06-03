@@ -1,0 +1,212 @@
+"""Application configuration loaded from environment / .env file."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/ directory and repo root
+BACKEND_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BACKEND_DIR.parent
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=str(REPO_ROOT / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # --- Environment ---
+    # "development" | "production" — gates auth enforcement, debug behavior, etc.
+    environment: str = "development"
+
+    # --- Storage ---
+    # Root of the local data tree. Subdirs: uploads/ anonymized/ processed/ exports/
+    data_dir: Path = REPO_ROOT / "data"
+    storage_backend: str = "local"  # "local" (S3 backend is a future swap)
+
+    # --- Database ---
+    # SQLite for local dev; set DATABASE_URL to a postgresql:// URL in production
+    # (docker-compose provides one). The engine adapts pool settings per dialect.
+    database_url: str = f"sqlite:///{REPO_ROOT / 'data' / 'revisent.db'}"
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_pre_ping: bool = True
+
+    # --- Job queue (Celery + Redis) ---
+    redis_url: str = "redis://localhost:6379/0"
+    # Broker/result default to redis_url but can be overridden independently.
+    celery_broker_url: str = ""
+    celery_result_backend: str = ""
+    # Run tasks synchronously in-process (tests / no-broker dev).
+    celery_task_always_eager: bool = False
+    # Max task retries on transient failure, with exponential backoff.
+    task_max_retries: int = 3
+
+    # --- Uploads ---
+    max_upload_bytes: int = 5 * 1024 * 1024 * 1024  # 5 GB
+
+    # --- Privacy ---
+    # If True, keep the raw upload after successful anonymization (dev/debug only).
+    # Per privacy principle, raw uploads are deleted once anonymization succeeds.
+    retain_raw_uploads: bool = True
+
+    # --- Anonymization ---
+    # Candidate detection threshold — deliberately low so weak frames of a real
+    # face are still captured and can be rescued by a confirmed track. Stray
+    # false positives that clear this bar are filtered out by track confirmation.
+    face_detection_confidence: float = 0.5
+    # A face *track* is only blurred if at least one of its detections scores at
+    # or above this. Measured separation: false positives (hands/objects) top out
+    # ~0.71, real faces reach 0.90 with many detections >=0.75. So a track that
+    # never produces a strong detection is treated as a false positive and dropped
+    # — this is what stops hands/objects from being blurred. Lower it if you have
+    # only small/distant faces that never score high (trades in more false blur).
+    face_confirm_confidence: float = 0.74
+    # Detection model: 0 = short-range (within ~2m, faces large), 1 = full-range.
+    face_detection_model: int = 1
+    # Gaussian blur kernel multiplier relative to detected face box size.
+    blur_strength: float = 0.6
+    # Pad each detected face box outward by this fraction before blurring.
+    face_box_padding: float = 0.2
+
+    # --- Temporal persistence (anti-flicker) ---
+    # Detection misses on individual frames (motion blur, profile, partial face)
+    # would otherwise leave a face un-blurred for a moment. We build face tracks
+    # across the whole clip and fill short gaps so the blur stays put.
+    # Max gap (seconds) to bridge between two detections of the same face.
+    temporal_max_gap_seconds: float = 0.8
+    # Hold the blur this long before a face first appears / after it last appears.
+    temporal_hold_seconds: float = 0.4
+    # Grow held/interpolated boxes by this fraction per held frame (covers motion
+    # while the face is undetected), capped internally.
+    track_dilation_per_frame: float = 0.06
+    # IoU above which a detection is matched to an existing track.
+    track_match_iou: float = 0.1
+    # Run face detection on a copy downscaled so its longest side is at most this
+    # many pixels (boxes are normalized, so they map back to full res). Speeds up
+    # detection on HD video; 0 disables downscaling. Verified recall-safe at 640
+    # for near faces; 960 is a conservative default that better preserves small /
+    # distant faces on real footage. Raise (or set 0) if you have tiny faces.
+    face_detection_max_dim: int = 960
+    # Run detection only every Nth frame; the temporal track gap-fill bridges the
+    # skipped frames (their gap is far below temporal_max_gap_seconds). At 30fps a
+    # stride of 2 halves detection cost — the dominant cost, doubly so in union
+    # mode — with negligible recall impact (a face barely moves in 1 frame). The
+    # blur pass still runs on every frame. 1 disables striding.
+    face_detection_stride: int = 2
+
+    # --- Face detector strategy (privacy robustness) ---
+    # "union" runs BOTH YuNet (cv2.FaceDetectorYN) and MediaPipe and takes the
+    # union of detections for redundancy — a face missed by one may be caught by
+    # the other. "yunet" or "mediapipe" use a single detector. Union is the
+    # privacy-conservative default.
+    face_detector: str = "union"  # union | yunet | mediapipe
+    # YuNet candidate score threshold (its own confidence scale) — low to catch
+    # weak frames; confirmation below gates what actually gets blurred.
+    yunet_score_threshold: float = 0.5
+    yunet_nms_threshold: float = 0.3
+    # A YuNet face track is confirmed (blurred) if one detection clears this.
+    # Measured separation: false positives top out ~0.67, real faces reach 0.92
+    # with many detections >=0.80. 0.80 maximizes recall with a wide FP margin.
+    yunet_confirm_score: float = 0.80
+    # Path to the YuNet ONNX weights (downloaded by scripts/fetch_models.py).
+    yunet_model_path: str = str(BACKEND_DIR / "ml_models" / "face_detection_yunet_2023mar.onnx")
+
+    # --- Hand pose (Phase 2, MediaPipe Hands) ---
+    # Frames per second to sample for hand-keypoint extraction. 10fps keeps CPU
+    # cost down and is smooth enough for the dashboard overlay; recorded in the
+    # output metadata so consumers know the sampling rate.
+    hand_pose_sample_fps: float = 10.0
+    hand_pose_max_hands: int = 2
+    # Lowered to 0.3: in egocentric chest-cam footage the hand is large, close,
+    # and often partly out of frame, which suppresses confidence. 0.3 measurably
+    # recovers more frames without spurious hands (unlike faces, a stray hand
+    # keypoint set is harmless — it's not a privacy issue).
+    hand_pose_min_detection_confidence: float = 0.3
+    hand_pose_min_tracking_confidence: float = 0.3
+    # MediaPipe Hands reports handedness assuming a mirrored (selfie) image. A
+    # chest-worn forward camera is not mirrored, so the raw Left/Right labels are
+    # swapped relative to the worker's actual hands. Set True to swap them back.
+    hand_pose_swap_handedness: bool = True
+
+    # --- Security ---
+    # When set, the API requires this key via the `X-API-Key` header. Always
+    # enforced in production; optional in development. Generate a strong value.
+    api_key: str = ""
+    # Comma-separated list of allowed CORS origins (frontend).
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Reject uploads whose sniffed content type isn't an allowed video container.
+    validate_upload_content: bool = True
+
+    # --- Observability ---
+    log_level: str = "INFO"
+    # Emit structured JSON logs (production) vs human-readable (dev).
+    log_json: bool = False
+    # Expose Prometheus metrics at /metrics.
+    metrics_enabled: bool = True
+
+    # --- Event extraction (Phase 4) ---
+    # An idle/waiting segment at or above this length is flagged as "downtime".
+    idle_downtime_seconds: float = 30.0
+
+    # --- Task segmentation (Phase 3) ---
+    # Provider: "ollama" runs a LOCAL vision model (free, no data egress);
+    # "claude" uses the Anthropic API (paid, opt-in). Default is the free local
+    # path so processing never costs money.
+    segmentation_provider: str = "ollama"  # ollama | claude
+    # Sample this many frames per second to classify.
+    segmentation_sample_fps: float = 1.0
+    # Merge/discard segments shorter than this (seconds) to reduce flicker.
+    segmentation_min_segment_seconds: float = 1.5
+    # Local Ollama VLM.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_vlm_model: str = "moondream"
+    ollama_timeout_seconds: int = 120
+    # Claude VLM (only used when segmentation_provider == "claude").
+    claude_vlm_model: str = "claude-sonnet-4-6"
+
+    # --- Anthropic API (Phases 3 & 6) ---
+    anthropic_api_key: str = ""
+
+    # ---- Derived helpers ----
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() in ("production", "prod")
+
+    @property
+    def broker_url(self) -> str:
+        return self.celery_broker_url or self.redis_url
+
+    @property
+    def result_backend(self) -> str:
+        return self.celery_result_backend or self.redis_url
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def auth_required(self) -> bool:
+        # Enforce auth whenever a key is configured, and always in production.
+        return bool(self.api_key) or self.is_production
+
+    @property
+    def uploads_dir(self) -> Path:
+        return self.data_dir / "uploads"
+
+    @property
+    def anonymized_dir(self) -> Path:
+        return self.data_dir / "anonymized"
+
+    @property
+    def processed_dir(self) -> Path:
+        return self.data_dir / "processed"
+
+    @property
+    def exports_dir(self) -> Path:
+        return self.data_dir / "exports"
+
+
+settings = Settings()

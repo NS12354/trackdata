@@ -1,0 +1,13 @@
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+frontend/node_modules/
+frontend/.next/
+data/
+*.db
+.git/
+.env
+.env.*
+!.env.docker.example
+**/.DS_Store
