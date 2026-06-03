@@ -4,6 +4,8 @@ import { fmtDate, fmtDuration, fmtPct } from "@/lib/format";
 import { Panel, StatusBadge } from "@/components/ui";
 import type { Video } from "@/lib/types";
 
+export const metadata = { title: "Videos — Revisent" };
+
 export const dynamic = "force-dynamic";
 
 export default async function VideosPage() {
@@ -22,6 +24,12 @@ export default async function VideosPage() {
           <h1 className="text-xl font-semibold">Videos</h1>
           <p className="text-sm text-muted">{videos.length} uploaded</p>
         </div>
+        <Link
+          href="/upload"
+          className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+        >
+          + Upload video
+        </Link>
       </div>
 
       {error ? (

@@ -23,6 +23,7 @@ export default function RootLayout({
             </a>
             <NavLink href="/">Overview</NavLink>
             <NavLink href="/videos">Videos</NavLink>
+            <NavLink href="/upload">Upload</NavLink>
             <span className="ml-auto text-xs text-muted">operator dashboard</span>
           </div>
         </header>

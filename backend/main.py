@@ -23,7 +23,9 @@ app = FastAPI(title="Revisent MVP", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
+    # Header-based auth (X-API-Key), not cookies — so credentials are off, which
+    # also lets CORS_ORIGINS="*" work for browser uploads during dev/demo.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
