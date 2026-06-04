@@ -59,10 +59,23 @@ URL=""
 if [ -n "$NGROK_DOMAIN" ]; then
   command -v ngrok >/dev/null || { echo "Install ngrok: brew install ngrok"; exit 1; }
   echo "→ opening ngrok tunnel on https://${NGROK_DOMAIN} …"
-  ngrok http "$PORT" --url "https://${NGROK_DOMAIN}" --log /tmp/revisent_tunnel.log >/dev/null 2>&1 &
+  ngrok http "$PORT" --url "https://${NGROK_DOMAIN}" --log /tmp/revisent_tunnel.log --log-format json >/dev/null 2>&1 &
   TUN_PID=$!
-  URL="https://${NGROK_DOMAIN}"
-  sleep 4
+  # Verify the tunnel actually established (ngrok's local API), don't assume it.
+  URL=""
+  for _ in $(seq 1 15); do
+    if curl -s http://localhost:4040/api/tunnels 2>/dev/null | grep -q "${NGROK_DOMAIN}"; then
+      URL="https://${NGROK_DOMAIN}"; break
+    fi
+    sleep 1
+  done
+  if [ -z "$URL" ]; then
+    echo "✗ ngrok failed to connect. Recent log:"
+    tail -15 /tmp/revisent_tunnel.log 2>/dev/null
+    echo "Common causes: wrong domain, authtoken not set (ngrok config add-authtoken …),"
+    echo "or the domain belongs to a different ngrok account."
+    exit 1
+  fi
 else
   command -v cloudflared >/dev/null || { echo "Install cloudflared: brew install cloudflared (or set NGROK_DOMAIN)"; exit 1; }
   echo "→ opening Cloudflare quick tunnel (ephemeral url)…"
