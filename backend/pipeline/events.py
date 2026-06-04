@@ -51,7 +51,16 @@ _TYPE_BY_LABEL = {
 def _event_type(label: str, duration: float) -> str:
     if label in SERVICE_LABELS:
         return "service"
-    base = _TYPE_BY_LABEL.get(label, "task")
+    base = _TYPE_BY_LABEL.get(label)
+    if base is None:
+        # Open-vocab (general) labels: best-effort keyword typing.
+        low = label.lower()
+        if any(k in low for k in ("idle", "wait", "stand", "still", "pause")):
+            base = "idle"
+        elif any(k in low for k in ("walk", "transit", "approach", "moving")):
+            base = "transit"
+        else:
+            base = "task"
     if base == "idle" and duration >= settings.idle_downtime_seconds:
         return "downtime"
     return base

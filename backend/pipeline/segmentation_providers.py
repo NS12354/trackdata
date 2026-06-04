@@ -57,6 +57,30 @@ _CAPTION_PROMPT = (
     + ", ".join(TASK_TAXONOMY) + "."
 )
 
+# Open mode: general-purpose, no fixed taxonomy. Describe what the person is doing
+# (action + object) in natural language — this is the commentary the chatbot reads.
+# Kept simple/declarative: tiny VLMs (moondream) reliably caption with this phrasing
+# but return empty on long multi-clause prompts.
+_OPEN_PROMPT = (
+    "Describe what the person in this image is doing in one short sentence, "
+    "including any object they are handling."
+)
+
+# Common words to ignore when deriving a short activity label for grouping.
+_STOP = {
+    "a", "an", "the", "is", "are", "was", "were", "of", "to", "in", "on", "at",
+    "with", "and", "or", "their", "his", "her", "they", "person", "image",
+    "shows", "appears", "seems", "frame", "camera", "this", "that", "it", "be",
+    "being", "doing", "while", "as", "from", "into", "near", "by", "for",
+}
+
+
+def _derive_activity(text: str, n: int = 4) -> str:
+    """A short, normalized activity label from a description, for grouping/display."""
+    words = re.findall(r"[a-z]+", text.lower())
+    content = [w for w in words if w not in _STOP and len(w) > 2]
+    return " ".join(content[:n]) if content else "activity"
+
 
 @dataclass
 class FrameLabel:
@@ -124,27 +148,37 @@ class OllamaVLMProvider:
         self.url = settings.ollama_base_url.rstrip("/") + "/api/chat"
         self.timeout = settings.ollama_timeout_seconds
 
-    def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
-        b64 = base64.b64encode(jpeg_bytes).decode()
-        use_json = settings.ollama_use_json
-        prompt = _JSON_PROMPT if use_json else _CAPTION_PROMPT
+    def _chat(self, prompt: str, b64: str, json_mode: bool = False, temperature: float = 0.0) -> str:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt, "images": [b64]}],
             "stream": False,
-            "options": {"temperature": 0},
+            "options": {"temperature": temperature},
         }
-        if use_json:
-            payload["format"] = "json"  # ask Ollama to constrain output to JSON
+        if json_mode:
+            payload["format"] = "json"
         resp = requests.post(self.url, json=payload, timeout=self.timeout)
         resp.raise_for_status()
-        content = resp.json().get("message", {}).get("content", "").strip()
+        return resp.json().get("message", {}).get("content", "").strip()
 
+    def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
+        b64 = base64.b64encode(jpeg_bytes).decode()
+
+        # Open mode: free-text description (commentary) — the chatbot's input.
+        if settings.segmentation_mode == "open":
+            text = self._chat(_OPEN_PROMPT, b64, temperature=0.2)
+            if not text:  # tiny models occasionally blank out; retry w/ a simpler prompt
+                text = self._chat("Briefly describe what is shown in this image in one sentence.",
+                                  b64, temperature=0.6)
+            return FrameLabel(task=_derive_activity(text) if text else "unclear",
+                              confidence=0.6 if text else 0.0,
+                              description=text, raw=text[:500]), 0.0
+
+        # Taxonomy mode.
+        use_json = settings.ollama_use_json
+        content = self._chat(_JSON_PROMPT if use_json else _CAPTION_PROMPT, b64, json_mode=use_json)
         if use_json:
-            # Capable model: parse the structured JSON (falls back to keyword
-            # matching the text if it didn't comply).
             return _parse_label(content), 0.0
-        # Tiny model: map the free-text caption onto the taxonomy locally.
         task = _match_taxonomy(content)
         label = (FrameLabel(task="idle/waiting", confidence=0.25, description=content, raw=content[:500])
                  if task is None else
@@ -179,6 +213,8 @@ class ClaudeVLMProvider:
 
     def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
         b64 = base64.b64encode(jpeg_bytes).decode()
+        open_mode = settings.segmentation_mode == "open"
+        prompt = _OPEN_PROMPT if open_mode else _JSON_PROMPT
         msg = self.client.messages.create(
             model=self.model,
             max_tokens=200,
@@ -186,13 +222,16 @@ class ClaudeVLMProvider:
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                    {"type": "text", "text": _JSON_PROMPT},
+                    {"type": "text", "text": prompt},
                 ],
             }],
         )
-        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
         cost = (msg.usage.input_tokens * self._IN_PER_TOK
                 + msg.usage.output_tokens * self._OUT_PER_TOK)
+        if open_mode:
+            return FrameLabel(task=_derive_activity(text), confidence=0.8,
+                              description=text, raw=text[:500]), cost
         return _parse_label(text), cost
 
     def healthcheck(self) -> bool:

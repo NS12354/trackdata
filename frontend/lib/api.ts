@@ -36,6 +36,24 @@ export const api = {
   getOverview: () => get<Overview>("/api/metrics/overview"),
 };
 
+export interface ChatReply {
+  answer: string;
+  provider: string;
+  model: string;
+}
+
+export async function chat(question: string, videoId?: string): Promise<ChatReply> {
+  const res = await fetch(`${BASE}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ question, video_id: videoId || null }),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status}: ${(await res.text().catch(() => "")) || "chat failed"}`);
+  }
+  return res.json() as Promise<ChatReply>;
+}
+
 /** Direct media URL for the <video> element (auth via query param). */
 export function anonymizedVideoUrl(id: string): string {
   const q = API_KEY ? `?api_key=${encodeURIComponent(API_KEY)}` : "";

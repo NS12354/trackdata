@@ -163,6 +163,10 @@ class Settings(BaseSettings):
     idle_downtime_seconds: float = 30.0
 
     # --- Task segmentation (Phase 3) ---
+    # Mode: "open" = describe what the person is doing in natural language +
+    # commentary (general-purpose, feeds the chatbot); "taxonomy" = classify into
+    # the fixed waste-services task list. Open is the default.
+    segmentation_mode: str = "open"  # open | taxonomy
     # Provider: "ollama" runs a LOCAL vision model (free, no data egress);
     # "claude" uses the Anthropic API (paid, opt-in). Default is the free local
     # path so processing never costs money.
@@ -183,6 +187,14 @@ class Settings(BaseSettings):
     ollama_use_json: bool = False
     # Claude VLM (only used when segmentation_provider == "claude").
     claude_vlm_model: str = "claude-sonnet-4-6"
+
+    # --- Chatbot (Phase 6) ---
+    # Answers questions grounded in the activity commentary + events. Local LLM by
+    # default (free, no data egress). "claude" uses the Anthropic API (paid).
+    chat_provider: str = "ollama"  # ollama | claude
+    chat_model: str = "llama3.1:8b"  # a text LLM you already have in Ollama
+    chat_max_segments: int = 400      # cap timeline lines fed to the model
+    chat_temperature: float = 0.2
 
     # --- Anthropic API (Phases 3 & 6) ---
     anthropic_api_key: str = ""

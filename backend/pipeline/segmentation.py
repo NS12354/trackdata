@@ -102,6 +102,50 @@ def _aggregate(per_frame: List[tuple], duration: float, sample_interval: float) 
     return segments
 
 
+def _similar(a: str, b: str, thresh: float = 0.34) -> bool:
+    """Token-overlap (Jaccard) similarity of two short activity labels."""
+    sa, sb = set(a.split()), set(b.split())
+    if not sa or not sb:
+        return a == b
+    inter = len(sa & sb)
+    return inter / len(sa | sb) >= thresh or inter >= 2
+
+
+def _aggregate_open(per_frame: List[tuple], duration: float, sample_interval: float) -> List[Segment]:
+    """Open-mode aggregation: group consecutive frames with *similar* activity
+    labels (open vocabulary varies frame-to-frame), keeping the most informative
+    commentary per segment."""
+    if not per_frame:
+        return []
+    segments: List[Segment] = []
+    cur_start = per_frame[0][0]
+    cur_label = per_frame[0][1].task
+    members = [per_frame[0][1]]
+    last_ts = per_frame[0][0]
+
+    def close(end_ts: float):
+        # Representative label = most common; commentary = longest (most detail).
+        labels = [m.task for m in members]
+        rep_label = Counter(labels).most_common(1)[0][0]
+        commentary = max((m.description for m in members), key=len, default="")
+        confs = [m.confidence for m in members]
+        segments.append(Segment(
+            start_time=round(cur_start, 3), end_time=round(end_ts, 3),
+            task_label=rep_label, confidence=round(sum(confs) / len(confs), 3),
+            description=commentary,
+        ))
+
+    for ts, label in per_frame[1:]:
+        if _similar(label.task, cur_label):
+            members.append(label)
+        else:
+            close(ts)
+            cur_start, cur_label, members = ts, label.task, [label]
+        last_ts = ts
+    close(min(duration, last_ts + sample_interval) if duration else last_ts + sample_interval)
+    return segments
+
+
 def _merge_short(segments: List[Segment], min_seconds: float) -> List[Segment]:
     """Absorb sub-threshold segments into the longer adjacent neighbor so brief
     misclassifications don't fragment the timeline."""
@@ -167,7 +211,12 @@ def segment_video(
     finally:
         cap.release()
 
-    segments = _aggregate(per_frame, meta.duration_seconds, sample_interval)
+    if settings.segmentation_mode == "open":
+        # Keep only frames the VLM actually described; blanks aren't observations.
+        observed = [(ts, lab) for ts, lab in per_frame if lab.description.strip()]
+        segments = _aggregate_open(observed, meta.duration_seconds, sample_interval)
+    else:
+        segments = _aggregate(per_frame, meta.duration_seconds, sample_interval)
     segments = _merge_short(segments, settings.segmentation_min_segment_seconds)
 
     log.info(

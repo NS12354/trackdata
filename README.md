@@ -6,10 +6,10 @@ hand-pose, task-segment, and event extracts that drive an operator dashboard and
 a natural-language chatbot — and double as clean structured extracts for research
 conversations.
 
-> Status: **v1 feature-complete** — Phases 1–5 + 7 done (Ingestion & Anonymization;
-> Hand Pose; Task Segmentation; Event Extraction & Metrics; Dashboard; Export
-> Bundle). Phase 6 chatbot deferred by choice. **All processing runs locally at
-> $0 — no per-video API cost.**
+> Status: **All 7 phases complete** — Ingestion & Anonymization; Hand Pose;
+> Activity Description (open-vocab) & Segmentation; Events & Metrics; Dashboard;
+> **Chatbot**; Export Bundle. **Everything runs locally at $0 — no per-video or
+> per-query API cost.**
 
 ## Architecture
 
@@ -114,6 +114,7 @@ requires `API_KEY` (the app refuses to start an unauthenticated production API).
 | `GET` | `/api/videos/{id}/events` | events + per-video summary (time-per-task, idle/downtime, service, contamination) |
 | `GET` | `/api/metrics/overview` | operator-wide rollup (hours, service events, downtime, contamination, per-property) |
 | `GET` | `/api/videos/{id}/export` | download a structured export bundle (.zip) |
+| `POST` | `/api/chat` | ask a question (`{question, video_id?}`) grounded in the activity commentary |
 
 Pipeline chaining: a successful anonymization automatically triggers hand-pose
 extraction. Hand-pose failure is non-fatal — the video stays usable, the flag
@@ -241,15 +242,32 @@ The API client (`lib/api.ts`) sends the API key via header, and the `<video>`
 element via `?api_key=` (it can't set headers). The backend serves the anonymized
 file with HTTP range support so scrubbing works.
 
-## Task segmentation (Phase 3)
+## Chatbot (Phase 6)
 
-`pipeline/segmentation.py` samples the anonymized video at ~1fps and classifies
-each frame against the waste-services task taxonomy (*approaching property, moving
-container, opening gate/enclosure, manipulating lock/latch, handling
-overflow/contamination, loading/unloading, transit/walking, idle/waiting*), then
-aggregates consecutive same-task frames into segments with start/end times,
-confidence, and a free-text description. Output:
-`data/processed/{video_id}/segments.json`.
+`pipeline/chat.py` + the `/chat` page answer plain-language questions about the
+footage. The model is given the **activity commentary timeline + summary metrics**
+(it does not re-watch video) and answers grounded in that, citing timestamps. Runs
+on a **local LLM via Ollama** (`CHAT_MODEL`, default `llama3.1:8b`) — free, no data
+egress; an optional `claude` provider exists. Example: *"Was there a scale
+involved?"* → *"Yes — visible from 00:19–00:24."* Pick one video or query across
+all processed footage.
+
+## Activity description & segmentation (Phase 3)
+
+`pipeline/segmentation.py` samples the anonymized video at ~1fps and, for each
+frame, asks a vision model **what the person is doing** (open vocabulary), then
+aggregates consecutive similar activities into a timestamped **commentary
+timeline**: start/end times + a natural-language description. Output:
+`data/processed/{video_id}/segments.json`. This commentary is what the chatbot
+reads.
+
+Two modes (`SEGMENTATION_MODE`):
+- **`open`** (default) — general "what is the person doing" + commentary. Not
+  domain-specific; feeds the chatbot.
+- **`taxonomy`** — classify into a fixed waste-services task list (*approaching
+  property, moving container, opening gate/enclosure, manipulating lock/latch,
+  handling overflow/contamination, loading/unloading, transit/walking,
+  idle/waiting*) for domain metrics.
 
 **Free, local, private by default.** The vision model runs through a pluggable
 provider (`SEGMENTATION_PROVIDER`):
