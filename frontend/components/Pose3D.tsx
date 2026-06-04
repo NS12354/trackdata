@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { HandPoseFrame, Landmark } from "@/lib/types";
+import type { HandPoseFrame, HeadPoseFrameT, Landmark } from "@/lib/types";
 
 const Plot = dynamic(() => import("./plotly-client"), { ssr: false });
 
@@ -53,16 +53,36 @@ function wristTarget(w: Landmark | undefined, H: number, side: number, sh: V3): 
   return [x, y, z];
 }
 
-function bodyTraces(H: number, frame: HandPoseFrame | null) {
-  const lSh: V3 = [-0.11 * H, 0.83 * H, 0];
-  const rSh: V3 = [0.11 * H, 0.83 * H, 0];
+// Rotate point p around a pivot c — X axis (lean fwd/back) and Y axis (turn).
+const rotX = (p: V3, c: V3, a: number): V3 => {
+  const y = p[1] - c[1], z = p[2] - c[2], ca = Math.cos(a), sa = Math.sin(a);
+  return [p[0], c[1] + y * ca - z * sa, c[2] + y * sa + z * ca];
+};
+const rotY = (p: V3, c: V3, a: number): V3 => {
+  const x = p[0] - c[0], z = p[2] - c[2], ca = Math.cos(a), sa = Math.sin(a);
+  return [c[0] + x * ca + z * sa, p[1], c[2] - x * sa + z * ca];
+};
+export function quatToEuler(q: [number, number, number, number]) {
+  const [w, x, y, z] = q;
+  const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))));
+  const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
+  const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
+  return { yaw, pitch, roll };
+}
+
+function bodyTraces(
+  H: number,
+  frame: HandPoseFrame | null,
+  head: { yaw: number; pitch: number; roll: number } | null
+) {
   const joints: Record<string, V3> = {
     headTop: [0, H, 0],
     nose: [0, 0.95 * H, 0.06 * H],
     neck: [0, 0.85 * H, 0],
     chest: [0, 0.72 * H, 0.02 * H],
     pelvis: [0, 0.55 * H, 0],
-    lSh, rSh,
+    lSh: [-0.11 * H, 0.83 * H, 0],
+    rSh: [0.11 * H, 0.83 * H, 0],
     lHip: [-0.09 * H, 0.55 * H, 0],
     rHip: [0.09 * H, 0.55 * H, 0],
     lKnee: [-0.09 * H, 0.28 * H, 0.03 * H],
@@ -70,6 +90,22 @@ function bodyTraces(H: number, frame: HandPoseFrame | null) {
     lAnk: [-0.09 * H, 0.03 * H, 0.05 * H],
     rAnk: [0.09 * H, 0.03 * H, 0.05 * H],
   };
+  // Drive the upper body with the MEASURED head pose: lean the torso by head
+  // pitch (look down → lean forward), turn by head yaw, around the pelvis; the
+  // head/neck get extra rotation on top.
+  if (head) {
+    const pelvis = joints.pelvis;
+    const lean = head.pitch * 0.6;
+    const turn = head.yaw * 0.7;
+    for (const k of ["neck", "chest", "lSh", "rSh", "nose", "headTop"]) {
+      joints[k] = rotX(rotY(joints[k], pelvis, turn), pelvis, lean);
+    }
+    const neck = joints.neck;
+    for (const k of ["nose", "headTop"]) {
+      joints[k] = rotX(rotY(joints[k], neck, head.yaw * 0.3), neck, head.pitch * 0.4);
+    }
+  }
+  const lSh = joints.lSh, rSh = joints.rSh;
   const Lu = 0.17 * H,
     Lf = 0.15 * H;
   const lArm = ik(lSh, wristTarget(frame?.left_hand_landmarks?.[0], H, -1, lSh), Lu, Lf);
@@ -140,19 +176,23 @@ const LAYOUT_BASE = {
 export default function Pose3D({
   videoRef,
   frames,
+  headFrames,
   operatorHeightCm,
 }: {
   videoRef: React.RefObject<HTMLVideoElement>;
   frames: HandPoseFrame[];
+  headFrames: HeadPoseFrameT[];
   operatorHeightCm: number;
 }) {
   const [frame, setFrame] = useState<HandPoseFrame | null>(frames[0] ?? null);
+  const [head, setHead] = useState<HeadPoseFrameT | null>(headFrames[0] ?? null);
   const lastTs = useRef(-1);
 
   useEffect(() => {
-    const times = frames.map((f) => f.timestamp_ms);
-    const nearest = (ms: number): HandPoseFrame | null => {
-      if (!frames.length) return null;
+    const hTimes = frames.map((f) => f.timestamp_ms);
+    const kTimes = headFrames.map((f) => f.timestamp_ms);
+    const nearest = <T,>(arr: T[], times: number[], ms: number): T | null => {
+      if (!arr.length) return null;
       let lo = 0, hi = times.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
@@ -160,7 +200,7 @@ export default function Pose3D({
         else hi = mid;
       }
       if (lo > 0 && Math.abs(times[lo - 1] - ms) < Math.abs(times[lo] - ms)) lo -= 1;
-      return frames[lo];
+      return arr[lo];
     };
     let raf = 0;
     const tick = () => {
@@ -169,16 +209,18 @@ export default function Pose3D({
         const ms = v.currentTime * 1000;
         if (Math.abs(ms - lastTs.current) > 80) {
           lastTs.current = ms;
-          setFrame(nearest(ms));
+          setFrame(nearest(frames, hTimes, ms));
+          setHead(nearest(headFrames, kTimes, ms));
         }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [videoRef, frames]);
+  }, [videoRef, frames, headFrames]);
 
   const H = (operatorHeightCm || 170) / 100;
+  const headEuler = head?.tracked ? quatToEuler(head.quaternion) : null;
   const handData = [
     ...handTraces(frame?.left_hand_landmarks ?? null, "#22c55e"),
     ...handTraces(frame?.right_hand_landmarks ?? null, "#38bdf8"),
@@ -200,9 +242,9 @@ export default function Pose3D({
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      <Panel3D title="Body pose (estimated)">
+      <Panel3D title="Body pose (head-driven estimate)">
         <Plot
-          data={bodyTraces(H, frame) as any}
+          data={bodyTraces(H, frame, headEuler) as any}
           layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
           config={{ displayModeBar: false, responsive: true } as any}
           style={{ width: "100%", height: "260px" }}

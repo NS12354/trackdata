@@ -39,6 +39,25 @@ def _segments_key(video_id: str) -> str:
     return f"processed/{video_id}/segments.json"
 
 
+def _head_pose_key(video_id: str) -> str:
+    return f"processed/{video_id}/head_pose.json"
+
+
+def run_head_pose(video_id: str) -> None:
+    """Estimate the head trajectory (visual odometry) from the anonymized video
+    and store it. Best-effort foundation for the ego-body pose view."""
+    storage = get_storage()
+    anon_key = _anonymized_key(video_id)
+    if not storage.exists(anon_key):
+        raise FileNotFoundError(f"anonymized video missing for {video_id}")
+    from .ego_pose import estimate_head_trajectory, trajectory_to_json
+    in_path = storage.local_path(anon_key)
+    out_path = storage.local_path(_head_pose_key(video_id))
+    poses = estimate_head_trajectory(in_path)
+    out_path.write_text(json.dumps(trajectory_to_json(video_id, poses)))
+    log.info("head pose %s: %d poses stored", video_id, len(poses))
+
+
 def run_anonymization(video_id: str, upload_key: str) -> None:
     """Anonymize an uploaded video and update its DB row.
 

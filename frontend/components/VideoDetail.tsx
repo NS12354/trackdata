@@ -9,18 +9,22 @@ import HandPoseOverlay from "@/components/HandPoseOverlay";
 import SegmentTimeline from "@/components/SegmentTimeline";
 import EventMetrics from "@/components/EventMetrics";
 import Pose3D from "@/components/Pose3D";
-import type { Video, SegmentsResponse, HandPoseResponse, VideoSummary } from "@/lib/types";
+import type {
+  Video, SegmentsResponse, HandPoseResponse, HeadPoseResponse, VideoSummary,
+} from "@/lib/types";
 
 export default function VideoDetail({
   video,
   segments,
   handpose,
+  headpose,
   summary,
   videoUrl,
 }: {
   video: Video;
   segments: SegmentsResponse | null;
   handpose: HandPoseResponse | null;
+  headpose: HeadPoseResponse | null;
   summary: VideoSummary | null;
   videoUrl: string;
 }) {
@@ -132,6 +136,7 @@ export default function VideoDetail({
         <Pose3D
           videoRef={videoRef}
           frames={handpose?.frames ?? []}
+          headFrames={headpose?.frames ?? []}
           operatorHeightCm={operatorHeight || 170}
         />
       </div>

@@ -63,6 +63,19 @@ export interface HandPoseResponse {
   frames: HandPoseFrame[];
 }
 
+export interface HeadPoseFrameT {
+  timestamp_ms: number;
+  position: [number, number, number];
+  quaternion: [number, number, number, number]; // w, x, y, z
+  tracked: boolean;
+}
+
+export interface HeadPoseResponse {
+  video_id: string;
+  method: string;
+  frames: HeadPoseFrameT[];
+}
+
 export interface OpEvent {
   id: number;
   video_id: string;

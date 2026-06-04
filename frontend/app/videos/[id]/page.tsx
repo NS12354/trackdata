@@ -2,7 +2,9 @@ import Link from "next/link";
 import { api, anonymizedVideoUrl } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import VideoDetail from "@/components/VideoDetail";
-import type { Video, SegmentsResponse, HandPoseResponse, VideoSummary } from "@/lib/types";
+import type {
+  Video, SegmentsResponse, HandPoseResponse, HeadPoseResponse, VideoSummary,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -27,9 +29,10 @@ export default async function VideoDetailPage({ params }: { params: { id: string
     );
   }
 
-  const [segments, handpose, summary] = await Promise.all([
+  const [segments, handpose, headpose, summary] = await Promise.all([
     safe<SegmentsResponse>(api.getSegments(params.id)),
     safe<HandPoseResponse>(api.getHandPose(params.id)),
+    safe<HeadPoseResponse>(api.getHeadPose(params.id)),
     safe<VideoSummary>(api.getEvents(params.id)),
   ]);
 
@@ -38,6 +41,7 @@ export default async function VideoDetailPage({ params }: { params: { id: string
       video={video}
       segments={segments}
       handpose={handpose}
+      headpose={headpose}
       summary={summary}
       videoUrl={anonymizedVideoUrl(params.id)}
     />

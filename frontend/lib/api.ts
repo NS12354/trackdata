@@ -2,6 +2,7 @@ import type {
   Video,
   SegmentsResponse,
   HandPoseResponse,
+  HeadPoseResponse,
   VideoSummary,
   Overview,
 } from "./types";
@@ -35,6 +36,7 @@ export const api = {
   getVideo: (id: string) => get<Video>(`/api/videos/${id}`),
   getSegments: (id: string) => get<SegmentsResponse>(`/api/videos/${id}/segments`),
   getHandPose: (id: string) => get<HandPoseResponse>(`/api/videos/${id}/hand-pose`),
+  getHeadPose: (id: string) => get<HeadPoseResponse>(`/api/videos/${id}/head-pose`),
   getEvents: (id: string) => get<VideoSummary>(`/api/videos/${id}/events`),
   getOverview: () => get<Overview>("/api/metrics/overview"),
 };

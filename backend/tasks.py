@@ -17,7 +17,7 @@ from celery_app import celery
 from config import settings
 from db import session_scope
 from models import Video, VideoStatus
-from pipeline.jobs import run_anonymization, run_hand_pose, run_segmentation
+from pipeline.jobs import run_anonymization, run_hand_pose, run_segmentation, run_head_pose
 from pipeline.events import extract_events
 
 log = logging.getLogger("revisent.tasks")
@@ -83,6 +83,11 @@ def extract_hand_pose_task(self, video_id: str) -> str:
             log.error("hand pose permanently failed for %s: %s", video_id, exc)
             _record_failure(video_id, "hand_pose", exc, fatal=False)
         raise
+    # Head-pose visual odometry (best-effort; doesn't block the pipeline).
+    try:
+        run_head_pose(video_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("head pose failed for %s: %s", video_id, exc)
     # Chain segmentation as a separate, independently-retryable task.
     segment_video_task.delay(video_id)
     return video_id
