@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     # blur pass still runs on every frame. 1 disables striding.
     face_detection_stride: int = 2
 
+    # --- Hardware video acceleration (Apple VideoToolbox) ---
+    # "auto" uses ffmpeg VideoToolbox hardware decode + H.264 encode when present
+    # (macOS) — a large no-quality-loss speedup; falls back to software (OpenCV +
+    # libx264) elsewhere (Docker/Linux/CI). "on"/"off" force it.
+    use_hardware_video: str = "auto"  # auto | on | off
+
     # --- Orientation auto-correction ---
     # Detect "which way is up" from content (upright faces) rather than trusting
     # only the rotation metadata, which is sometimes missing or wrong — so a clip

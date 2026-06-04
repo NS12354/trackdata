@@ -8,6 +8,7 @@ import { exportBundleUrl } from "@/lib/api";
 import HandPoseOverlay from "@/components/HandPoseOverlay";
 import SegmentTimeline from "@/components/SegmentTimeline";
 import EventMetrics from "@/components/EventMetrics";
+import Pose3D from "@/components/Pose3D";
 import type { Video, SegmentsResponse, HandPoseResponse, VideoSummary } from "@/lib/types";
 
 export default function VideoDetail({
@@ -37,6 +38,11 @@ export default function VideoDetail({
 
   const hasHands = !!handpose && handpose.frames.length > 0;
   const ready = video.status === "processed" || video.status === "anonymized";
+  const operatorHeight = (video as any).operator_height_cm as number | null;
+  const scene = (video as any).scene as string | null;
+  const activeSeg =
+    segments?.segments.find((s) => currentTime >= s.start_time && currentTime < s.end_time) ||
+    segments?.segments[0];
 
   return (
     <div className="space-y-5">
@@ -68,8 +74,8 @@ export default function VideoDetail({
         </Panel>
       )}
 
+      {/* Egocentric-pose layout: footage + commentary (left), 3D pose (right) */}
       <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
-        {/* Player + overlay */}
         <div className="space-y-3">
           <Panel className="overflow-hidden">
             <div className="relative mx-auto w-fit bg-black">
@@ -81,7 +87,7 @@ export default function VideoDetail({
                   playsInline
                   onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                   onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-                  className="block max-h-[68vh] w-auto"
+                  className="block max-h-[60vh] w-auto"
                 />
               ) : (
                 <div className="flex h-64 w-[480px] max-w-full items-center justify-center text-sm text-muted">
@@ -92,33 +98,46 @@ export default function VideoDetail({
                 <HandPoseOverlay videoRef={videoRef} frames={handpose!.frames} enabled={overlay} />
               )}
             </div>
+            {/* Live commentary caption */}
+            {activeSeg?.description && (
+              <div className="border-t border-border px-4 py-3 text-center text-sm">
+                {activeSeg.description}
+              </div>
+            )}
+            {/* Scene + operator height */}
+            <div className="flex gap-10 border-t border-border px-4 py-3 text-sm">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted">⬚ Scene</div>
+                <div className="mt-0.5">{scene || "—"}</div>
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted">⬓ Operator height</div>
+                <div className="mt-0.5">{operatorHeight ? `${operatorHeight}cm` : "—"}</div>
+              </div>
+            </div>
           </Panel>
 
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
-            <span>
-              Anonymized · blur coverage {fmtPct(video.anonymization_coverage)}
-            </span>
-            {hasHands ? (
+            <span>Anonymized · blur {fmtPct(video.anonymization_coverage)}</span>
+            {hasHands && (
               <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={overlay}
-                  onChange={(e) => setOverlay(e.target.checked)}
-                />
+                <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} />
                 Hand-pose overlay
-                <span className="text-muted">
-                  ({handpose!.metadata.model} @ {handpose!.metadata.sample_fps}fps)
-                </span>
               </label>
-            ) : (
-              <span>Hand pose not available</span>
             )}
           </div>
-
-          {summary && <EventMetrics summary={summary} />}
         </div>
 
-        {/* Timeline */}
+        {/* 3D pose, synced to the playhead */}
+        <Pose3D
+          videoRef={videoRef}
+          frames={handpose?.frames ?? []}
+          operatorHeightCm={operatorHeight || 170}
+        />
+      </div>
+
+      {/* Timeline + metrics */}
+      <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <Panel className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-medium">Task timeline</div>
@@ -136,11 +155,10 @@ export default function VideoDetail({
               onSeek={seek}
             />
           ) : (
-            <div className="py-8 text-center text-sm text-muted">
-              No segments yet.
-            </div>
+            <div className="py-8 text-center text-sm text-muted">No segments yet.</div>
           )}
         </Panel>
+        {summary && <EventMetrics summary={summary} />}
       </div>
     </div>
   );

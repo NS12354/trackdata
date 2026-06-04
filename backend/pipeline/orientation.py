@@ -67,7 +67,11 @@ def detect_orientation_by_faces(path: Path) -> Optional[int]:
         for f in frames:
             for r in (0, 90, 180, 270):
                 for d in detector.detect(_rotate(f, r)):
-                    scores[r] += d.score
+                    # Only confident (strong) detections vote — false positives on
+                    # hands/objects must not decide orientation, or a faceless clip
+                    # gets rotated to wherever the FPs happen to score highest.
+                    if d.strong:
+                        scores[r] += d.score
     finally:
         detector.close()
 

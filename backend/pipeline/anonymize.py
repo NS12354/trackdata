@@ -21,11 +21,12 @@ intentionally dropped in v1 (voices are PII we do not yet redact).
 """
 from __future__ import annotations
 
-import shutil  
+import functools
+import shutil
 import subprocess
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -212,26 +213,135 @@ def _build_filled_boxes(
 
 
 # --------------------------------------------------------------------------- #
-# ffmpeg writer
+# Hardware (Apple VideoToolbox) vs software video I/O
 # --------------------------------------------------------------------------- #
-def _open_ffmpeg_writer(out_path: Path, meta: VideoMeta) -> subprocess.Popen | None:
+@functools.lru_cache(maxsize=1)
+def _hw_video_available() -> bool:
+    """True if ffmpeg can do VideoToolbox hardware decode + H.264 encode."""
+    mode = settings.use_hardware_video.lower()
+    if mode == "off" or shutil.which("ffmpeg") is None:
+        return False
+    if mode == "on":
+        return True
+    try:
+        enc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=10).stdout
+        hw = subprocess.run(["ffmpeg", "-hide_banner", "-hwaccels"],
+                            capture_output=True, text=True, timeout=10).stdout
+        return "h264_videotoolbox" in enc and "videotoolbox" in hw
+    except Exception:
+        return False
+
+
+def _rotation_vf(deg: int) -> Optional[str]:
+    """ffmpeg filter to rotate raw frames upright — matches ``apply_rotation``."""
+    if deg == 90:
+        return "transpose=1"                 # 90° clockwise
+    if deg == 180:
+        return "transpose=2,transpose=2"     # 180°
+    if deg == 270:
+        return "transpose=2"                 # 90° counter-clockwise
+    return None
+
+
+class _SwReader:
+    """OpenCV software decode; rotation applied in Python."""
+
+    def __init__(self, path: Path, meta: VideoMeta):
+        self.cap = cv2.VideoCapture(str(path))
+        if not self.cap.isOpened():
+            raise ValueError(f"could not open video: {path}")
+        self.rot = meta.rotation
+
+    def read(self):
+        ok, f = self.cap.read()
+        return apply_rotation(f, self.rot) if ok else None
+
+    def grab(self) -> bool:
+        return self.cap.grab()
+
+    def close(self):
+        self.cap.release()
+
+
+class _HwReader:
+    """VideoToolbox hardware decode via an ffmpeg pipe; rotation baked into the
+    filter graph (``-noautorotate`` so it matches the software path)."""
+
+    def __init__(self, path: Path, meta: VideoMeta):
+        self.w, self.h = meta.width, meta.height
+        self.nbytes = self.w * self.h * 3
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
+               "-noautorotate", "-hwaccel", "videotoolbox", "-i", str(path)]
+        vf = _rotation_vf(meta.rotation)
+        if vf:
+            cmd += ["-vf", vf]
+        cmd += ["-an", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL)
+
+    def _read_exact(self):
+        buf = bytearray()
+        while len(buf) < self.nbytes:
+            chunk = self.proc.stdout.read(self.nbytes - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+
+    def read(self):
+        buf = self._read_exact()
+        if buf is None:
+            return None
+        # Writable copy so the blur pass can modify it in place.
+        return np.frombuffer(bytes(buf), np.uint8).reshape(self.h, self.w, 3).copy()
+
+    def grab(self) -> bool:
+        return self._read_exact() is not None
+
+    def close(self):
+        try:
+            self.proc.stdout.close()
+        except Exception:
+            pass
+        self.proc.wait()
+
+
+def _make_reader(path: Path, meta: VideoMeta):
+    if _hw_video_available():
+        try:
+            return _HwReader(path, meta)
+        except Exception:
+            pass
+    return _SwReader(path, meta)
+
+
+def _target_bitrate(meta: VideoMeta) -> str:
+    bps = int(meta.width * meta.height * (meta.fps or 30.0) * 0.1)
+    bps = max(2_000_000, min(bps, 12_000_000))
+    return f"{bps // 1000}k"
+
+
+def _open_ffmpeg_writer(out_path: Path, meta: VideoMeta):
+    """Return (Popen, codec_name) or (None, 'mp4v'). Hardware H.264 when available."""
     if shutil.which("ffmpeg") is None:
-        return None
+        return None, "mp4v"
+    if _hw_video_available():
+        vcodec = ["-c:v", "h264_videotoolbox", "-b:v", _target_bitrate(meta), "-pix_fmt", "yuv420p"]
+        codec = "h264_videotoolbox"
+    else:
+        vcodec = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"]
+        codec = "h264"
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "rawvideo", "-pix_fmt", "bgr24",
-        "-s", f"{meta.width}x{meta.height}",
-        "-r", f"{meta.fps}",
-        "-i", "-",
-        "-an",
-        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart",
-        str(out_path),
+        "-s", f"{meta.width}x{meta.height}", "-r", f"{meta.fps}", "-i", "-",
+        "-an", *vcodec, "-movflags", "+faststart", str(out_path),
     ]
     try:
-        return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        return subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE), codec
     except Exception:
-        return None
+        return None, "mp4v"
 
 
 # --------------------------------------------------------------------------- #
@@ -259,29 +369,25 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     candidate_detections = 0
     stride = max(1, settings.face_detection_stride)
     detector = get_face_detector()
-    cap = cv2.VideoCapture(str(input_path))
-    if not cap.isOpened():
-        detector.close()
-        raise ValueError(f"could not open input video: {input_path}")
+    reader = _make_reader(input_path, meta)  # hardware decode when available
     try:
         idx = 0
         while True:
             if idx % stride == 0:
-                ok, frame = cap.read()
-                if not ok:
+                frame = reader.read()  # upright BGR
+                if frame is None:
                     break
-                frame = apply_rotation(frame, meta.rotation)
                 dets = detector.detect(frame)
                 candidate_detections += len(dets)
                 # Pad each raw face box outward, carry the per-detector strong flag.
                 per_frame.append([(_dilate(d.box, pad), d.strong) for d in dets])
             else:
-                if not cap.grab():  # advance without full decode/convert
+                if not reader.grab():  # advance without running detection
                     break
                 per_frame.append([])
             idx += 1
     finally:
-        cap.release()
+        reader.close()
         detector.close()
 
     frames_total = len(per_frame)
@@ -296,12 +402,9 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     total_detections = stats["confirmed_detections"]
 
     # ---- Pass 2: blur + encode ----
-    cap = cv2.VideoCapture(str(input_path))
-    if not cap.isOpened():
-        raise ValueError(f"could not reopen input video: {input_path}")
-    ff = _open_ffmpeg_writer(output_path, meta)
+    reader = _make_reader(input_path, meta)
+    ff, output_codec = _open_ffmpeg_writer(output_path, meta)
     cv_writer = None
-    output_codec = "h264"
     if ff is None:
         cv_writer = cv2.VideoWriter(
             str(output_path), cv2.VideoWriter_fourcc(*"mp4v"),
@@ -311,10 +414,9 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     try:
         idx = 0
         while True:
-            ok, frame = cap.read()
-            if not ok:
+            frame = reader.read()
+            if frame is None:
                 break
-            frame = apply_rotation(frame, meta.rotation)
             if idx < len(filled):
                 for box in filled[idx]:
                     _blur_box(frame, box, strength)
@@ -324,7 +426,7 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
                 cv_writer.write(frame)
             idx += 1
     finally:
-        cap.release()
+        reader.close()
         if ff is not None:
             ff.stdin.close()
             err = ff.stderr.read().decode("utf-8", "ignore") if ff.stderr else ""
