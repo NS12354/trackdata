@@ -38,8 +38,8 @@ export default function VideoDetail({
 
   const hasHands = !!handpose && handpose.frames.length > 0;
   const ready = video.status === "processed" || video.status === "anonymized";
-  const operatorHeight = (video as any).operator_height_cm as number | null;
-  const scene = (video as any).scene as string | null;
+  const operatorHeight = video.operator_height_cm;
+  const scene = video.scene;
   const activeSeg =
     segments?.segments.find((s) => currentTime >= s.start_time && currentTime < s.end_time) ||
     segments?.segments[0];

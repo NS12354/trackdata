@@ -39,6 +39,11 @@ class Video(Base):
     # Property tag the operator associates on upload (Phase 4 per-property metrics).
     property_tag: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
 
+    # Operator-provided height (cm) — sets the scale for the estimated body pose.
+    operator_height_cm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Scene / setting label, derived from the activity commentary.
+    scene: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
     status: Mapped[VideoStatus] = mapped_column(
         Enum(VideoStatus, native_enum=False, length=16),
         default=VideoStatus.uploaded,
@@ -76,6 +81,8 @@ class Video(Base):
             "operator_id": self.operator_id,
             "worker_id_anonymized": self.worker_id_anonymized,
             "property_tag": self.property_tag,
+            "operator_height_cm": self.operator_height_cm,
+            "scene": self.scene,
             "status": self.status.value if isinstance(self.status, VideoStatus) else self.status,
             "file_size": self.file_size,
             "duration_seconds": self.duration_seconds,

@@ -104,6 +104,30 @@ def _ask_claude(question: str, context: str) -> str:
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
 
 
+def derive_scene(descriptions: List[str]) -> str:
+    """Name the setting/scene in 1-3 words from the activity descriptions (local LLM)."""
+    joined = " ".join(d for d in descriptions if d)[:1500]
+    if not joined:
+        return ""
+    prompt = (
+        "These describe moments in a worker's first-person video:\n" + joined +
+        "\n\nIn 1-3 words, name the overall setting/scene (e.g. 'Car service', "
+        "'Warehouse', 'Kitchen'). Reply with ONLY the scene name."
+    )
+    try:
+        url = settings.ollama_base_url.rstrip("/") + "/api/chat"
+        r = requests.post(url, json={
+            "model": settings.chat_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False, "options": {"temperature": 0.1},
+        }, timeout=settings.ollama_timeout_seconds)
+        r.raise_for_status()
+        ans = r.json().get("message", {}).get("content", "").strip()
+        return ans.split("\n")[0].strip(' ".').strip()[:60]
+    except Exception:
+        return ""
+
+
 def answer_question(question: str, video_id: Optional[str] = None) -> dict:
     context = build_context(video_id)
     provider = settings.chat_provider.lower()

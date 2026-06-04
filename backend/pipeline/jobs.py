@@ -141,6 +141,10 @@ def run_segmentation(video_id: str) -> None:
     result = segment_video(in_path, video_id)
     out_path.write_text(json.dumps(result.to_json(), indent=2))
 
+    # Derive a scene/setting label from the commentary (local LLM, best-effort).
+    from .chat import derive_scene
+    scene = derive_scene([s.description for s in result.segments])
+
     with session_scope() as s:
         video = s.get(Video, video_id)
         if video is not None:
@@ -148,4 +152,6 @@ def run_segmentation(video_id: str) -> None:
             video.segmented_at = datetime.now(timezone.utc)
             video.segmentation_cost_usd = result.cost_usd
             video.status = VideoStatus.processed
+            if scene:
+                video.scene = scene
             video.error_message = None

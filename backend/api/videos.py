@@ -44,6 +44,7 @@ async def upload_video(
     operator_id: str = Form("default-operator"),
     worker_id_anonymized: Optional[str] = Form(None),
     property_tag: Optional[str] = Form(None),
+    operator_height_cm: Optional[int] = Form(None),
     db: Session = Depends(db_dependency),
 ):
     """Accept an mp4/mov upload, persist it, and trigger async anonymization."""
@@ -101,6 +102,7 @@ async def upload_video(
         operator_id=operator_id,
         worker_id_anonymized=worker_id_anonymized,
         property_tag=property_tag,
+        operator_height_cm=operator_height_cm,
         status=VideoStatus.uploaded,
         file_size=size,
     )

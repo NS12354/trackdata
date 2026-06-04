@@ -11,6 +11,7 @@ export default function UploadForm() {
   const [propertyTag, setPropertyTag] = useState("");
   const [operatorId, setOperatorId] = useState("default-operator");
   const [workerId, setWorkerId] = useState("");
+  const [heightCm, setHeightCm] = useState("");
   const [pct, setPct] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,7 @@ export default function UploadForm() {
           operator_id: operatorId || undefined,
           property_tag: propertyTag || undefined,
           worker_id_anonymized: workerId || undefined,
+          operator_height_cm: heightCm || undefined,
         },
         setPct
       );
@@ -59,9 +61,14 @@ export default function UploadForm() {
           )}
         </Field>
 
-        <Field label="Property tag (optional)">
-          <Input value={propertyTag} onChange={setPropertyTag} placeholder="e.g. Greystar-Maple" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Property tag (optional)">
+            <Input value={propertyTag} onChange={setPropertyTag} placeholder="e.g. Greystar-Maple" />
+          </Field>
+          <Field label="Operator height cm (for body pose)">
+            <Input value={heightCm} onChange={setHeightCm} placeholder="e.g. 162" />
+          </Field>
+        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Operator ID">

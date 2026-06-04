@@ -12,6 +12,8 @@ export interface Video {
   operator_id: string;
   worker_id_anonymized: string | null;
   property_tag: string | null;
+  operator_height_cm: number | null;
+  scene: string | null;
   status: VideoStatus;
   file_size: number | null;
   duration_seconds: number | null;

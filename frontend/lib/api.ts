@@ -73,6 +73,7 @@ export interface UploadFields {
   operator_id?: string;
   property_tag?: string;
   worker_id_anonymized?: string;
+  operator_height_cm?: string;
 }
 
 /**
@@ -92,6 +93,8 @@ export function uploadVideo(
     if (fields.property_tag) fd.append("property_tag", fields.property_tag);
     if (fields.worker_id_anonymized)
       fd.append("worker_id_anonymized", fields.worker_id_anonymized);
+    if (fields.operator_height_cm)
+      fd.append("operator_height_cm", fields.operator_height_cm);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/api/videos`);
