@@ -200,6 +200,14 @@ class Settings(BaseSettings):
     # Claude VLM (only used when segmentation_provider == "claude").
     claude_vlm_model: str = "claude-sonnet-4-6"
 
+    # --- Head pose / ego-body (visual odometry) ---
+    # Approximate horizontal field of view of the head camera (degrees), used to
+    # build camera intrinsics for monocular visual odometry. Action/head cams are
+    # wide; set to your camera's actual FOV for better results.
+    ego_camera_fov_deg: float = 90.0
+    ego_vo_sample_fps: float = 6.0
+    ego_vo_orb_features: int = 2000
+
     # --- Chatbot (Phase 6) ---
     # Answers questions grounded in the activity commentary + events. Local LLM by
     # default (free, no data egress). "claude" uses the Anthropic API (paid).
