@@ -126,23 +126,29 @@ class OllamaVLMProvider:
 
     def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
         b64 = base64.b64encode(jpeg_bytes).decode()
+        use_json = settings.ollama_use_json
+        prompt = _JSON_PROMPT if use_json else _CAPTION_PROMPT
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": _CAPTION_PROMPT, "images": [b64]}],
+            "messages": [{"role": "user", "content": prompt, "images": [b64]}],
             "stream": False,
             "options": {"temperature": 0},
         }
+        if use_json:
+            payload["format"] = "json"  # ask Ollama to constrain output to JSON
         resp = requests.post(self.url, json=payload, timeout=self.timeout)
         resp.raise_for_status()
-        caption = resp.json().get("message", {}).get("content", "").strip()
-        # Map the free-text caption onto the taxonomy locally.
-        task = _match_taxonomy(caption)
-        if task is None:
-            label = FrameLabel(task="idle/waiting", confidence=0.25,
-                               description=caption, raw=caption[:500])
-        else:
-            label = FrameLabel(task=task, confidence=0.55,
-                               description=caption, raw=caption[:500])
+        content = resp.json().get("message", {}).get("content", "").strip()
+
+        if use_json:
+            # Capable model: parse the structured JSON (falls back to keyword
+            # matching the text if it didn't comply).
+            return _parse_label(content), 0.0
+        # Tiny model: map the free-text caption onto the taxonomy locally.
+        task = _match_taxonomy(content)
+        label = (FrameLabel(task="idle/waiting", confidence=0.25, description=content, raw=content[:500])
+                 if task is None else
+                 FrameLabel(task=task, confidence=0.55, description=content, raw=content[:500]))
         return label, 0.0  # local inference is free
 
     def healthcheck(self) -> bool:

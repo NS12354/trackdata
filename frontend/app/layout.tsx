@@ -24,6 +24,7 @@ export default function RootLayout({
             <NavLink href="/">Overview</NavLink>
             <NavLink href="/videos">Videos</NavLink>
             <NavLink href="/upload">Upload</NavLink>
+            <NavLink href="/calculator">Cost calc</NavLink>
             <span className="ml-auto text-xs text-muted">operator dashboard</span>
           </div>
         </header>

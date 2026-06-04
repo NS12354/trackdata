@@ -171,10 +171,16 @@ class Settings(BaseSettings):
     segmentation_sample_fps: float = 1.0
     # Merge/discard segments shorter than this (seconds) to reduce flicker.
     segmentation_min_segment_seconds: float = 1.5
-    # Local Ollama VLM.
+    # Local Ollama VLM. moondream is the fast default that runs comfortably on
+    # modest hardware. qwen2.5vl:3b is a sharper option; qwen2.5vl:7b is best but
+    # too heavy for ~16GB machines. Set ollama_use_json=true for capable models.
     ollama_base_url: str = "http://localhost:11434"
     ollama_vlm_model: str = "moondream"
-    ollama_timeout_seconds: int = 120
+    ollama_timeout_seconds: int = 180
+    # Capable models answer the structured-JSON classification prompt directly;
+    # tiny models (moondream) do better with a caption prompt mapped to the
+    # taxonomy locally. Set true for capable models (qwen2.5vl, llava).
+    ollama_use_json: bool = False
     # Claude VLM (only used when segmentation_provider == "claude").
     claude_vlm_model: str = "claude-sonnet-4-6"
 

@@ -254,8 +254,10 @@ confidence, and a free-text description. Output:
 **Free, local, private by default.** The vision model runs through a pluggable
 provider (`SEGMENTATION_PROVIDER`):
 - `ollama` (default) — a **local** vision model via Ollama (`OLLAMA_VLM_MODEL`,
-  default `moondream`). **$0 cost and no frame ever leaves the machine.** Warm
-  inference is ~1–2s/frame on CPU (one-time model load on first call).
+  default `qwen2.5vl:7b`, which follows the taxonomy well and emits structured
+  JSON). **$0 cost and no frame ever leaves the machine.** Lighter option:
+  `moondream` (~1.9B, faster) with `OLLAMA_USE_JSON=false` (caption + keyword
+  mapping, since tiny models don't do structured output).
 - `claude` — the Anthropic API (`ANTHROPIC_API_KEY`). Higher-quality labels, paid;
   opt-in only. Per-video cost is logged (`segmentation_cost_usd`).
 
