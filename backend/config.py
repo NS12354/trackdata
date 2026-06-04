@@ -182,6 +182,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_vlm_model: str = "qwen2.5vl:3b"
     ollama_timeout_seconds: int = 240
+    # Critical for usable speed: downscale the frame sent to the VLM (fewer vision
+    # tokens) and cap the context window (avoids a multi-GB KV cache). Together
+    # these take qwen2.5vl:3b from >4min/frame to ~2-4s/frame on a 16GB Mac.
+    segmentation_frame_max_dim: int = 512
+    ollama_num_ctx: int = 4096
     # Capable models answer the structured-JSON classification prompt directly;
     # tiny models (moondream) do better with a caption prompt mapped to the
     # taxonomy locally. Set true for capable models (qwen2.5vl, llava).

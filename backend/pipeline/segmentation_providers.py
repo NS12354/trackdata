@@ -153,7 +153,7 @@ class OllamaVLMProvider:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt, "images": [b64]}],
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": {"temperature": temperature, "num_ctx": settings.ollama_num_ctx},
         }
         if json_mode:
             payload["format"] = "json"

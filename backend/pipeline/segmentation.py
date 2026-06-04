@@ -202,6 +202,14 @@ def segment_video(
                 break
             if idx % stride == 0:
                 frame = apply_rotation(frame, meta.rotation)
+                # Downscale before sending to the VLM — fewer vision tokens = far
+                # faster (critical for qwen2.5vl), with no loss for scene-level
+                # description.
+                md = settings.segmentation_frame_max_dim
+                h, w = frame.shape[:2]
+                if md and max(h, w) > md:
+                    s = md / max(h, w)
+                    frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
                 ok2, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 if ok2:
                     label, cost = provider.classify(buf.tobytes())
