@@ -33,6 +33,10 @@ data/*.db
 # --- ML model weights (fetched via scripts/fetch_models.py) ---
 backend/ml_models/*.onnx
 
+# --- Local config for serve_public.sh (persisted key + ngrok domain) ---
+backend/.serve_api_key
+backend/.serve_ngrok_domain
+
 # --- OS / editor ---
 .DS_Store
 *.swp
