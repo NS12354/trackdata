@@ -10,8 +10,11 @@ const BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") || "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
-function authHeaders(): HeadersInit {
-  return API_KEY ? { "X-API-Key": API_KEY } : {};
+function authHeaders(): Record<string, string> {
+  // ngrok-skip-browser-warning bypasses the free-tier interstitial page.
+  const h: Record<string, string> = { "ngrok-skip-browser-warning": "true" };
+  if (API_KEY) h["X-API-Key"] = API_KEY;
+  return h;
 }
 
 async function get<T>(path: string): Promise<T> {
@@ -92,6 +95,7 @@ export function uploadVideo(
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/api/videos`);
+    xhr.setRequestHeader("ngrok-skip-browser-warning", "true");
     if (API_KEY) xhr.setRequestHeader("X-API-Key", API_KEY);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress)
