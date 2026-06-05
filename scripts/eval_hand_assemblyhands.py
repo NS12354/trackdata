@@ -55,7 +55,8 @@ def main():
     ap.add_argument("--ann", required=True, help="annotations/val folder")
     ap.add_argument("--img", required=True, help="root containing ego image files")
     ap.add_argument("--n", type=int, default=400)
-    ap.add_argument("--conf", type=float, default=0.3)
+    ap.add_argument("--conf", type=float, default=0.1, help="prod-tuned for blur")
+    ap.add_argument("--complexity", type=int, default=0, help="prod-tuned: lite model, 3x detection on blur")
     args = ap.parse_args()
 
     ann = Path(args.ann)
@@ -75,6 +76,7 @@ def main():
 
     import mediapipe as mp
     hands = mp.solutions.hands.Hands(static_image_mode=True, max_num_hands=2,
+                                     model_complexity=args.complexity,
                                      min_detection_confidence=args.conf)
 
     per_joint_pa, per_joint_rr = [], []

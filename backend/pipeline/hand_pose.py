@@ -65,6 +65,57 @@ def _landmarks_to_list(landmark_list) -> List[List[float]]:
     return [[lm.x, lm.y, lm.z] for lm in landmark_list.landmark]
 
 
+def _temporal_fill(seq, times, max_gap_s):
+    """Bridge short None-gaps (blurred frames a detector missed) by linear interp
+    between the surrounding detections. Only gaps <= max_gap_s are filled; longer
+    dropouts are left genuine. Returns (new_seq, filled_mask)."""
+    out = list(seq)
+    filled = [False] * len(seq)
+    valid = [i for i, s in enumerate(seq) if s is not None]
+    for a, b in zip(valid, valid[1:]):
+        if b - a <= 1 or (times[b] - times[a]) / 1000.0 > max_gap_s:
+            continue
+        A = np.asarray(seq[a], dtype=np.float32)
+        B = np.asarray(seq[b], dtype=np.float32)
+        span = times[b] - times[a] or 1.0
+        for k in range(a + 1, b):
+            t = (times[k] - times[a]) / span
+            out[k] = ((1 - t) * A + t * B).tolist()
+            filled[k] = True
+    return out, filled
+
+
+def _smooth_oneeuro(seq, times, min_cutoff=1.5, beta=0.04):
+    """One-Euro smoothing: de-jitters slow/noisy detections but stays responsive to
+    fast motion (cutoff rises with speed). Resets across genuine dropouts."""
+    out = list(seq)
+    x_prev = dx_prev = None
+    prev_t = None
+
+    def alpha(cutoff, dt):
+        tau = 1.0 / (2 * np.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    for i, s in enumerate(seq):
+        if s is None:
+            x_prev = dx_prev = prev_t = None
+            continue
+        x = np.asarray(s, dtype=np.float32)
+        t = times[i] / 1000.0
+        if x_prev is None:
+            x_prev, dx_prev, prev_t = x, np.zeros_like(x), t
+            continue
+        dt = max(1e-3, t - prev_t)
+        dx = (x - x_prev) / dt
+        dx_hat = alpha(1.0, dt) * dx + (1 - alpha(1.0, dt)) * dx_prev
+        cutoff = min_cutoff + beta * float(np.linalg.norm(dx_hat))
+        a = alpha(cutoff, dt)
+        x_hat = a * x + (1 - a) * x_prev
+        out[i] = x_hat.tolist()
+        x_prev, dx_prev, prev_t = x_hat, dx_hat, t
+    return out
+
+
 def extract_hand_pose(
     video_path: Path,
     output_path: Path,
@@ -104,6 +155,7 @@ def extract_hand_pose(
         with mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=settings.hand_pose_max_hands,
+            model_complexity=settings.hand_pose_model_complexity,
             min_detection_confidence=settings.hand_pose_min_detection_confidence,
             min_tracking_confidence=settings.hand_pose_min_tracking_confidence,
         ) as hands:
@@ -156,6 +208,25 @@ def extract_hand_pose(
                 idx += 1
     finally:
         cap.release()
+
+    # --- Temporal robustness for blurry/fast footage ---
+    # Bridge short blur-dropouts, then de-jitter without lagging fast motion.
+    max_gap = settings.hand_pose_gap_fill_seconds
+    left_lms, left_filled = _temporal_fill(left_lms, timestamps, max_gap)
+    right_lms, right_filled = _temporal_fill(right_lms, timestamps, max_gap)
+    for i, f in enumerate(left_filled):
+        if f and left_conf[i] is None:
+            left_conf[i] = 0.2   # mark interpolated frames (low confidence)
+    for i, f in enumerate(right_filled):
+        if f and right_conf[i] is None:
+            right_conf[i] = 0.2
+    if settings.hand_pose_smooth:
+        left_lms = _smooth_oneeuro(left_lms, timestamps)
+        right_lms = _smooth_oneeuro(right_lms, timestamps)
+    # Recompute coverage/counts to include the bridged frames.
+    frames_with_any = sum(1 for l, r in zip(left_lms, right_lms) if l is not None or r is not None)
+    left_count = sum(1 for l in left_lms if l is not None)
+    right_count = sum(1 for r in right_lms if r is not None)
 
     table = pa.table(
         {

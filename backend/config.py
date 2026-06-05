@@ -137,16 +137,29 @@ class Settings(BaseSettings):
     # output metadata so consumers know the sampling rate.
     hand_pose_sample_fps: float = 10.0
     hand_pose_max_hands: int = 2
-    # Lowered to 0.3: in egocentric chest-cam footage the hand is large, close,
-    # and often partly out of frame, which suppresses confidence. 0.3 measurably
-    # recovers more frames without spurious hands (unlike faces, a stray hand
-    # keypoint set is harmless — it's not a privacy issue).
-    hand_pose_min_detection_confidence: float = 0.3
-    hand_pose_min_tracking_confidence: float = 0.3
+    # Model complexity: 0 = "lite", 1 = "full". TUNED to 0 — on blurry/fast/
+    # occluded egocentric footage the lite palm detector is far more permissive and
+    # recovers ~3x more hands (AssemblyHands: 10.8% -> 36.3% detection) at ~no
+    # accuracy cost (~22mm PA-MPJPE either way). For blur/speed, catching the hand
+    # at all beats a few mm of precision. (Measured via scripts/tune_hand.py.)
+    hand_pose_model_complexity: int = 0
+    # Lowered to 0.1: blurry/fast hands and hands partly out of frame produce weak
+    # detections; a low bar recovers them. Stray hand keypoints are harmless (not a
+    # privacy issue, unlike faces), so we bias hard toward recall on messy footage.
+    hand_pose_min_detection_confidence: float = 0.1
+    hand_pose_min_tracking_confidence: float = 0.1
     # MediaPipe Hands reports handedness assuming a mirrored (selfie) image. A
     # chest-worn forward camera is not mirrored, so the raw Left/Right labels are
     # swapped relative to the worker's actual hands. Set True to swap them back.
     hand_pose_swap_handedness: bool = True
+    # Temporal robustness for blurry/fast footage. Bridge detection dropouts up to
+    # this many seconds by interpolating between the surrounding detections (a few
+    # blurred frames no longer break the track). Filled frames are marked with low
+    # confidence so consumers can tell measured from interpolated.
+    hand_pose_gap_fill_seconds: float = 0.3
+    # Light One-Euro smoothing to de-jitter noisy blurry detections WITHOUT lagging
+    # fast motion (it adapts: smooths when slow, stays responsive when fast).
+    hand_pose_smooth: bool = True
 
     # --- Security ---
     # When set, the API requires this key via the `X-API-Key` header. Always

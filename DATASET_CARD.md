@@ -31,7 +31,7 @@ provenance** so you can filter to exactly the joints you trust.
 
 ## Benchmark (accuracy)
 **Hands — the measured, sellable signal (PA-MPJPE):**
-- **Egocentric (on-point): 22.6 mm** on `AssemblyHands` head-cam (400 hands) — head/chest-cam relevant.
+- **Egocentric (on-point): 22.63 mm** on `AssemblyHands` head-cam (601 hands) — head/chest-cam relevant.
 - Third-person cross-check: 15.02 mm on `FreiHAND` (377 hands, 94% detection).
 - Detector = MediaPipe Hands (a fast general detector, not task-SOTA: FreiHAND SOTA ≈7 mm; ego is much harder). Numbers verified by per-joint sanity.
 
