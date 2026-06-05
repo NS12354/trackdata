@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Grid, useFBX } from "@react-three/drei";
+import { OrbitControls, Grid, useFBX, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { computeBodyJoints, quatToEuler, nearestByTime, type BodyJoints } from "@/lib/pose";
@@ -10,19 +10,24 @@ import type { HandPoseFrame, HeadPoseFrameT, Landmark } from "@/lib/types";
 
 const MODEL_URL = "/models/ybot.fbx";
 
-// Each driven bone: aim it from joint `from` toward joint `to`. `childBone` is the
-// rig's own next bone, used to read the bind-pose aim direction.
+// Normalize bone names so we match regardless of how the loader mangles them
+// ("mixamorig:LeftArm" / "mixamorigLeftArm" / "LeftArm" all -> "leftarm").
+const norm = (s: string) =>
+  s.replace(/^mixamorig:?/i, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+// Each driven bone: aim from joint `from` toward joint `to`. `childBone` is the
+// rig's next bone, used to read the bind-pose aim direction.
 const DRIVEN: { bone: string; childBone: string; from: keyof BodyJoints; to: keyof BodyJoints }[] = [
-  { bone: "mixamorig:Spine", childBone: "mixamorig:Spine1", from: "pelvis", to: "chest" },
-  { bone: "mixamorig:Neck", childBone: "mixamorig:Head", from: "neck", to: "head" },
-  { bone: "mixamorig:LeftArm", childBone: "mixamorig:LeftForeArm", from: "lSh", to: "lElbow" },
-  { bone: "mixamorig:LeftForeArm", childBone: "mixamorig:LeftHand", from: "lElbow", to: "lWrist" },
-  { bone: "mixamorig:RightArm", childBone: "mixamorig:RightForeArm", from: "rSh", to: "rElbow" },
-  { bone: "mixamorig:RightForeArm", childBone: "mixamorig:RightHand", from: "rElbow", to: "rWrist" },
-  { bone: "mixamorig:LeftUpLeg", childBone: "mixamorig:LeftLeg", from: "lHip", to: "lKnee" },
-  { bone: "mixamorig:LeftLeg", childBone: "mixamorig:LeftFoot", from: "lKnee", to: "lAnk" },
-  { bone: "mixamorig:RightUpLeg", childBone: "mixamorig:RightLeg", from: "rHip", to: "rKnee" },
-  { bone: "mixamorig:RightLeg", childBone: "mixamorig:RightFoot", from: "rKnee", to: "rAnk" },
+  { bone: "Spine", childBone: "Spine1", from: "pelvis", to: "chest" },
+  { bone: "Neck", childBone: "Head", from: "neck", to: "head" },
+  { bone: "LeftArm", childBone: "LeftForeArm", from: "lSh", to: "lElbow" },
+  { bone: "LeftForeArm", childBone: "LeftHand", from: "lElbow", to: "lWrist" },
+  { bone: "RightArm", childBone: "RightForeArm", from: "rSh", to: "rElbow" },
+  { bone: "RightForeArm", childBone: "RightHand", from: "rElbow", to: "rWrist" },
+  { bone: "LeftUpLeg", childBone: "LeftLeg", from: "lHip", to: "lKnee" },
+  { bone: "LeftLeg", childBone: "LeftFoot", from: "lKnee", to: "lAnk" },
+  { bone: "RightUpLeg", childBone: "RightLeg", from: "rHip", to: "rKnee" },
+  { bone: "RightLeg", childBone: "RightFoot", from: "rKnee", to: "rAnk" },
 ];
 
 function Rig({
@@ -38,6 +43,8 @@ function Rig({
 
   const bonesRef = useRef<Record<string, THREE.Bone>>({});
   const restRef = useRef<Record<string, { q: THREE.Quaternion; dir: THREE.Vector3 }>>({});
+  const hudRef = useRef<HTMLDivElement>(null);
+  const matchedRef = useRef(0);
   const hTimes = useMemo(() => frames.map((f) => f.timestamp_ms), [frames]);
   const kTimes = useMemo(() => headFrames.map((f) => f.timestamp_ms), [headFrames]);
   const lastL = useRef<Landmark[] | null>(null);
@@ -47,11 +54,9 @@ function Rig({
   const tmpQ2 = useMemo(() => new THREE.Quaternion(), []);
   const tmpV = useMemo(() => new THREE.Vector3(), []);
 
-  // One-time setup: index bones, scale to operator height, stand on the floor,
-  // and capture each driven bone's bind-pose world orientation + aim direction.
   useEffect(() => {
     const bones: Record<string, THREE.Bone> = {};
-    model.traverse((o: any) => { if (o.isBone) bones[o.name] = o as THREE.Bone; });
+    model.traverse((o: any) => { if (o.isBone) bones[norm(o.name)] = o as THREE.Bone; });
     bonesRef.current = bones;
 
     model.updateMatrixWorld(true);
@@ -66,26 +71,32 @@ function Rig({
     model.updateMatrixWorld(true);
 
     const rest: Record<string, { q: THREE.Quaternion; dir: THREE.Vector3 }> = {};
+    let matched = 0;
     for (const d of DRIVEN) {
-      const b = bones[d.bone], c = bones[d.childBone];
+      const b = bones[norm(d.bone)], c = bones[norm(d.childBone)];
       if (!b || !c) continue;
+      matched++;
       const q = new THREE.Quaternion(); b.getWorldQuaternion(q);
       const pb = new THREE.Vector3(); b.getWorldPosition(pb);
       const pc = new THREE.Vector3(); c.getWorldPosition(pc);
-      rest[d.bone] = { q, dir: pc.sub(pb).normalize() };
+      rest[norm(d.bone)] = { q, dir: pc.sub(pb).normalize() };
     }
     restRef.current = rest;
+    matchedRef.current = matched;
+    // eslint-disable-next-line no-console
+    console.log("[HumanModelFBX] bones:", Object.keys(bones).length,
+      "| driven matched:", matched, "/", DRIVEN.length,
+      "| sample names:", Object.keys(bones).slice(0, 6));
   }, [model, H]);
 
   useFrame(() => {
     const bones = bonesRef.current, rest = restRef.current;
-    if (!bones["mixamorig:Hips"]) return;
-
     let left = lastL.current, right = lastR.current;
     let headE: { yaw: number; pitch: number; roll: number } | null = null;
+    let ms = -1;
     const v = videoRef.current;
     if (v && frames.length) {
-      const ms = v.currentTime * 1000;
+      ms = v.currentTime * 1000;
       const hf = nearestByTime(frames, hTimes, ms);
       if (hf?.left_hand_landmarks) { left = hf.left_hand_landmarks; lastL.current = left; }
       if (hf?.right_hand_landmarks) { right = hf.right_hand_landmarks; lastR.current = right; }
@@ -95,15 +106,13 @@ function Rig({
     const j = computeBodyJoints(H, left, right, headE);
 
     for (const d of DRIVEN) {
-      const b = bones[d.bone], r = rest[d.bone];
+      const b = bones[norm(d.bone)], r = rest[norm(d.bone)];
       if (!b || !r) continue;
       const from = j[d.from], to = j[d.to];
       tmpV.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
       if (tmpV.lengthSq() < 1e-9) continue;
       tmpV.normalize();
-      // world delta (bind aim -> target aim), composed onto the bind world quat
       tmpQ.setFromUnitVectors(r.dir, tmpV).multiply(r.q);
-      // express as local rotation under the (current) parent
       if (b.parent) {
         b.parent.updateWorldMatrix(true, false);
         b.parent.getWorldQuaternion(tmpQ2).invert();
@@ -113,9 +122,24 @@ function Rig({
       }
       b.updateWorldMatrix(false, false);
     }
+
+    if (hudRef.current) {
+      hudRef.current.textContent =
+        `bones matched ${matchedRef.current}/${DRIVEN.length} · frames ${frames.length} · t=${ms < 0 ? "—" : (ms / 1000).toFixed(1) + "s"}`;
+    }
   });
 
-  return <primitive object={model} />;
+  return (
+    <>
+      <primitive object={model} />
+      <Html position={[0, H * 1.15, 0]} center distanceFactor={H * 6}>
+        <div ref={hudRef} style={{
+          color: "#9fb0c3", font: "11px monospace", whiteSpace: "nowrap",
+          background: "rgba(11,14,19,0.7)", padding: "2px 6px", borderRadius: 4,
+        }} />
+      </Html>
+    </>
+  );
 }
 
 export default function HumanModelFBX({
