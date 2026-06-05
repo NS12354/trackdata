@@ -17,7 +17,9 @@ from celery_app import celery
 from config import settings
 from db import session_scope
 from models import Video, VideoStatus
-from pipeline.jobs import run_anonymization, run_hand_pose, run_segmentation, run_head_pose
+from pipeline.jobs import (
+    run_anonymization, run_hand_pose, run_segmentation, run_head_pose, run_body_pose,
+)
 from pipeline.events import extract_events
 
 log = logging.getLogger("revisent.tasks")
@@ -88,6 +90,11 @@ def extract_hand_pose_task(self, video_id: str) -> str:
         run_head_pose(video_id)
     except Exception as exc:  # noqa: BLE001
         log.warning("head pose failed for %s: %s", video_id, exc)
+    # Body-pose skeletal data product (best-effort; needs head + hand pose).
+    try:
+        run_body_pose(video_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("body pose failed for %s: %s", video_id, exc)
     # Chain segmentation as a separate, independently-retryable task.
     segment_video_task.delay(video_id)
     return video_id

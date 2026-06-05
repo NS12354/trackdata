@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session
 from config import settings
 from db import db_dependency
 from models import Video, VideoStatus
-from pipeline.jobs import _anonymized_key, _hand_pose_key, _segments_key, _head_pose_key
+from pipeline.jobs import (
+    _anonymized_key, _hand_pose_key, _segments_key, _head_pose_key, _body_pose_key,
+)
 from pipeline.hand_pose import load_hand_pose, read_hand_pose_metadata
 from pipeline.segmentation import load_segments
 from pipeline.events import summarize_video
@@ -248,6 +250,31 @@ def trigger_head_pose(video_id: str, db: Session = Depends(db_dependency)):
         raise HTTPException(status_code=409, detail="video is not anonymized yet")
     from pipeline.jobs import run_head_pose
     run_head_pose(video_id)
+    return {"status": "done", "video_id": video_id}
+
+
+@router.get("/{video_id}/body-pose")
+def get_body_pose(video_id: str, db: Session = Depends(db_dependency)):
+    """Per-frame skeletal pose (joints + per-joint confidence + provenance)."""
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    storage = get_storage()
+    key = _body_pose_key(video_id)
+    if not storage.exists(key):
+        raise HTTPException(status_code=404, detail="body pose not computed yet")
+    import json as _json
+    return _json.loads(storage.local_path(key).read_text())
+
+
+@router.post("/{video_id}/body-pose", status_code=202)
+def trigger_body_pose(video_id: str, db: Session = Depends(db_dependency)):
+    """(Re)assemble the skeletal body-pose data product."""
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    if not get_storage().exists(_anonymized_key(video_id)):
+        raise HTTPException(status_code=409, detail="video is not anonymized yet")
+    from pipeline.jobs import run_body_pose
+    run_body_pose(video_id)
     return {"status": "done", "video_id": video_id}
 
 

@@ -208,6 +208,21 @@ class Settings(BaseSettings):
     ego_vo_sample_fps: float = 6.0
     ego_vo_orb_features: int = 2000
 
+    # --- Chest-mount camera geometry (body-pose back-projection) ---
+    # Where the camera sits relative to the pelvis, in the body frame (fractions of
+    # operator height H; +Y up, +Z forward). A shirt-clipped chest cam sits a bit
+    # above and in front of the chest joint. Used to back-project the measured 2D
+    # hand position into a 3D body-space ray (image-consistent wrist placement).
+    ego_chest_mount_height_frac: float = 0.22   # above pelvis
+    ego_chest_mount_forward_frac: float = 0.10  # in front of pelvis
+    # Downward tilt of the mounted camera (degrees); a clipped chest cam usually
+    # points slightly down toward the hands/work area.
+    ego_chest_mount_pitch_deg: float = 12.0
+    # Shoulder->wrist reach radius (fraction of H) used to resolve depth along the
+    # back-projected image ray. Monocular depth is ambiguous; the 2D ray direction
+    # is MEASURED, the depth along it is bounded by arm reach (documented as such).
+    ego_arm_reach_frac: float = 0.30
+
     # --- Chatbot (Phase 6) ---
     # Answers questions grounded in the activity commentary + events. Local LLM by
     # default (free, no data egress). "claude" uses the Anthropic API (paid).

@@ -28,6 +28,7 @@ from storage import get_storage
 from .hand_pose import read_hand_pose_metadata
 from .events import summarize_video
 from .video_meta import probe
+from .capture_meta import capture_record
 
 log = logging.getLogger("revisent.export")
 
@@ -49,6 +50,10 @@ def _hand_pose_path(video_id: str) -> Path:
 
 def _segments_path(video_id: str) -> Path:
     return get_storage().local_path(f"processed/{video_id}/segments.json")
+
+
+def _body_pose_path(video_id: str) -> Path:
+    return get_storage().local_path(f"processed/{video_id}/body_pose.json")
 
 
 def _capture_meta(anon: Path, anon_meta: dict) -> dict:
@@ -90,6 +95,22 @@ def build_export(video_id: str) -> Path:
     # Events: write the per-video summary (includes the event list) into the bundle.
     summary = summarize_video(video_id)
 
+    # Body-pose skeletal data product: raw per-joint parquet + skeleton spec +
+    # SMPL-X mapping. Built into a temp dir, added to the zip, cleaned up.
+    body_pose = _body_pose_path(video_id)
+    pose_files: dict[str, Path] = {}
+    body_doc = None
+    if body_pose.exists():
+        from .pose_export import write_raw_pose
+        from .smplx_export import write_smplx_readme
+        body_doc = json.loads(body_pose.read_text())
+        tmp = get_storage().local_path(f"exports/_pose_{video_id}")
+        write_raw_pose(body_doc, tmp)
+        write_smplx_readme(tmp)
+        for fn in ("pose_joints.parquet", "skeleton.json", "smplx_README.json"):
+            if (tmp / fn).exists():
+                pose_files[fn] = tmp / fn
+
     # Provenance for the manifest.
     hp_meta = read_hand_pose_metadata(hand_pose) if hand_pose.exists() else None
 
@@ -105,6 +126,20 @@ def build_export(video_id: str) -> Path:
         contents.insert(1, {
             "path": "hand_pose.parquet", "type": "application/vnd.apache.parquet",
             "description": "Per-frame 21-point hand keypoints, normalized x,y,z.",
+        })
+    if "pose_joints.parquet" in pose_files:
+        contents.insert(1, {
+            "path": "pose_joints.parquet", "type": "application/vnd.apache.parquet",
+            "description": "Per-frame skeletal joints (meters, body frame) with "
+                           "per-joint confidence + measured/ik/oriented/inferred provenance.",
+        })
+        contents.insert(2, {
+            "path": "skeleton.json", "type": "application/json",
+            "description": "Joint order, kinematic tree, coordinate system, provenance legend.",
+        })
+        contents.insert(3, {
+            "path": "smplx_README.json", "type": "application/json",
+            "description": "SMPL-X joint mapping + how to enable parametric fitting.",
         })
     if seg_data is not None:
         contents.insert(-2, {
@@ -126,6 +161,7 @@ def build_export(video_id: str) -> Path:
             "status": vdict["status"],
         },
         "capture": _capture_meta(anon, anon_meta),
+        "capture_metadata": capture_record(vdict, _capture_meta(anon, anon_meta)),
         "anonymization": {
             "method": vdict["anonymization_method"],
             "coverage": vdict["anonymization_coverage"],
@@ -153,6 +189,15 @@ def build_export(video_id: str) -> Path:
                 "downtime_seconds": summary["downtime_seconds"],
                 "contamination_event_count": summary["contamination_event_count"],
             },
+            "body_pose": ({
+                "schema": body_doc.get("schema"),
+                "frame_count": body_doc.get("frame_count"),
+                "joint_names": body_doc.get("joint_names"),
+                "wrist_measured_fraction": body_doc.get("coverage", {}).get("wrist_measured_fraction"),
+                "camera_mount": body_doc.get("camera_mount"),
+                "note": "Per-joint confidence + provenance in pose_joints.parquet; "
+                        "head/legs are inferred priors (chest cam never sees them).",
+            } if body_doc else None),
         },
         "consent": {
             "reference": None,
@@ -170,10 +215,17 @@ def build_export(video_id: str) -> Path:
         zf.write(anon, "anonymized.mp4")
         if hand_pose.exists():
             zf.write(hand_pose, "hand_pose.parquet")
+        for fn, fp in pose_files.items():
+            zf.write(fp, fn)
         if seg_data is not None:
             zf.writestr("segments.json", json.dumps(seg_data, indent=2))
         zf.writestr("events.json", json.dumps(summary, indent=2))
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+    # Clean up the temp pose dir.
+    if pose_files:
+        import shutil
+        shutil.rmtree(get_storage().local_path(f"exports/_pose_{video_id}"), ignore_errors=True)
 
     log.info("built export %s (%d bytes, %d files)", video_id, out.stat().st_size, len(contents))
     return out
