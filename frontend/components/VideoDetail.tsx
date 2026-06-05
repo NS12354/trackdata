@@ -6,8 +6,10 @@ import dynamic from "next/dynamic";
 import { Panel, StatusBadge } from "@/components/ui";
 
 // Three.js humanoid is client-only (WebGL) — load without SSR.
-// FBX rig (Mixamo Y Bot) driven by the tracked pose; procedural model is the fallback.
-const HumanModel3D = dynamic(() => import("@/components/HumanModelFBX"), { ssr: false });
+// Procedural mannequin (renders cleanly). The FBX Y Bot rig (HumanModelFBX) is
+// WIP — parked due to Mixamo pivot-node retargeting; revisit when pose accuracy
+// is validated.
+const HumanModel3D = dynamic(() => import("@/components/HumanModel3D"), { ssr: false });
 import { fmtDuration, fmtPct, fmtDate } from "@/lib/format";
 import { exportBundleUrl } from "@/lib/api";
 import HandPoseOverlay from "@/components/HandPoseOverlay";
