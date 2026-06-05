@@ -62,23 +62,39 @@ def build_card(name: str, version: str) -> str:
     eps, frames, secs = _scan_clips()
     hours = secs / 3600.0
     pose = _last_run(DATA / "eval" / "pose_runs.jsonl")
+    hand = _last_run(DATA / "eval" / "hand_runs.jsonl")
     priv = _last_run(DATA / "eval" / "privacy_runs.jsonl")
 
     def bench_block():
-        if not pose:
-            return ("> **Benchmark: not yet run.** Run `scripts/eval_pose.py` against a "
-                    "public ground-truth dataset (AssemblyHands / Ego-Exo4D) and regenerate "
-                    "this card. **A frontier lab asks for this on the first call.**\n")
-        lines = [f"- **PA-MPJPE (Procrustes-aligned):** {pose['pa_mpjpe_mm']} mm "
-                 f"on `{pose['dataset']}` ({pose['n_samples']} samples)",
-                 f"- **MPJPE (root-aligned):** {pose['mpjpe_mm']} mm"]
-        bp = pose.get("by_provenance_pa_mm") or {}
-        if bp:
-            lines.append("- **By provenance (PA-MPJPE mm)** — which joints to trust:")
-            for k in ("measured", "ik", "oriented", "inferred"):
-                if k in bp:
-                    lines.append(f"    - `{k}`: {bp[k]} mm")
-        return "\n".join(lines) + "\n"
+        out = []
+        if hand:
+            dr = int(round(hand.get("detection_rate", 0) * 100))
+            out += [
+                "**Hands — the measured, sellable signal:**",
+                f"- **{hand['pa_mpjpe_mm']} mm PA-MPJPE** on `{hand['dataset']}` "
+                f"({hand['n']} hands, {dr}% detection)",
+                f"- root-relative MPJPE {hand['mpjpe_mm']} mm  "
+                f"_(FreiHAND SOTA ≈7 mm; MediaPipe is a fast general detector, not SOTA)_",
+                "- Measures the hand-keypoint detector on third-person single-hand images. "
+                "The on-point egocentric number (AssemblyHands/Ego-Exo4D) is the gated follow-up.",
+                "",
+            ]
+        if pose and pose.get("dataset") != "synthetic-selftest":
+            out += [
+                "**Full skeleton (vs egocentric GT):**",
+                f"- PA-MPJPE {pose['pa_mpjpe_mm']} mm on `{pose['dataset']}` ({pose['n_samples']} samples)",
+            ]
+            bp = pose.get("by_provenance_pa_mm") or {}
+            if bp:
+                out.append("- By provenance (PA-MPJPE mm):")
+                for k in ("measured", "ik", "oriented", "inferred"):
+                    if k in bp:
+                        out.append(f"    - `{k}`: {bp[k]} mm")
+        if not out:
+            return ("> **Benchmark: not yet run.** Run `scripts/eval_hand_freihand.py` (hands) "
+                    "and `scripts/eval_pose.py` (body) against public ground truth, then "
+                    "regenerate this card. **A frontier lab asks for this on the first call.**\n")
+        return "\n".join(out) + "\n"
 
     def priv_block():
         if not priv:

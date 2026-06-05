@@ -9,8 +9,8 @@ at a scale and diversity teleoperation can't reach, with **honest per-joint
 provenance** so you can filter to exactly the joints you trust.
 
 ## Contents at a glance
-- **Episodes:** 1
-- **Total frames (pose):** 266
+- **Episodes:** 2
+- **Total frames (pose):** 697
 - **Total footage:** 0.0 hours
 - **Skeleton:** 17-joint (`revisent-ego-17`, SMPL-compatible names)
 - **Hands:** 21-point per hand (MediaPipe order)
@@ -30,7 +30,11 @@ provenance** so you can filter to exactly the joints you trust.
 - **SMPL-X** parameters (integration shipped; license-gated weights — see README)
 
 ## Benchmark (accuracy)
-> **Benchmark: not yet run.** Run `scripts/eval_pose.py` against a public ground-truth dataset (AssemblyHands / Ego-Exo4D) and regenerate this card. **A frontier lab asks for this on the first call.**
+**Hands — the measured, sellable signal:**
+- **15.02 mm PA-MPJPE** on `FreiHAND` (377 hands, 94% detection)
+- root-relative MPJPE 42.68 mm  _(FreiHAND SOTA ≈7 mm; MediaPipe is a fast general detector, not SOTA)_
+- Measures the hand-keypoint detector on third-person single-hand images. The on-point egocentric number (AssemblyHands/Ego-Exo4D) is the gated follow-up.
+
 
 *PA-MPJPE is the fair metric for monocular, height-scaled pose — quote it first.*
 
