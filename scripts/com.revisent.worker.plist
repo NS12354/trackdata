@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.revisent.worker</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/nayansarma/Desktop/DataProcess/revisent-mvp/backend/.venv/bin/celery</string>
+        <string>-A</string>
+        <string>celery_app.celery</string>
+        <string>worker</string>
+        <string>--pool=solo</string>
+        <string>--loglevel=info</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/nayansarma/Desktop/DataProcess/revisent-mvp/backend</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>/Users/nayansarma/Desktop/DataProcess/revisent-mvp/backend</string>
+        <key>OBJC_DISABLE_INITIALIZE_FORK_SAFETY</key>
+        <string>YES</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/revisent_worker.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/revisent_worker.log</string>
+</dict>
+</plist>
