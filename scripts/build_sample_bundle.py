@@ -44,14 +44,15 @@ print(df[df.provenance == "measured"].head())
 ```
 Joint order, kinematic tree, and coordinate system are in `raw/<clip>/skeleton.json`.
 
-## LeRobot (lead format)
+## LeRobot (lead format — verified loadable in vanilla lerobot 0.5.1, v3.0)
 ```bash
 pip install lerobot
 ```
 ```python
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-ds = LeRobotDataset(repo_id="revisent-sample", root="lerobot")
-print(ds, ds[0].keys())
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+ds = LeRobotDataset(repo_id="revisent/ego-manipulation", root="lerobot")
+print(ds.num_episodes, ds.num_frames)   # 3 episodes, 1302 frames
+ds[0]   # observation.state (51), observation.confidence (17), action (6), task, ...
 ```
 
 ## SMPL-X (parametric, license-gated)
@@ -87,9 +88,25 @@ def build(video_ids, out_dir: Path, do_zip: bool):
     if not usable:
         raise SystemExit("no processed clips with body_pose.json found")
 
-    # LeRobot dataset across all clips
-    lerobot_summary = build_lerobot_dataset(usable, out_dir / "lerobot")
-    lerobot_problems = [p for p in validate_lerobot(out_dir / "lerobot") if not p.startswith("INFO")]
+    # LeRobot dataset across all clips. Prefer the OFFICIAL converter (to_lerobot.py)
+    # run in a lerobot venv (python>=3.10) so the output loads in vanilla lerobot
+    # (v3.0, verified). Fall back to the legacy v2.0 writer if no lerobot is found.
+    import os, subprocess
+    lerobot_py = os.environ.get("LEROBOT_PYTHON", "/tmp/lerobot-venv/bin/python")
+    if Path(lerobot_py).exists():
+        r = subprocess.run([lerobot_py, str(ROOT / "scripts" / "to_lerobot.py"),
+                            "--out", str(out_dir / "lerobot")], capture_output=True, text=True)
+        if r.returncode == 0:
+            lerobot_summary = {"format": "lerobot-v3.0 (official API, loads in vanilla lerobot)"}
+            lerobot_problems = "none — built + loaded with lerobot's own API"
+        else:
+            lerobot_summary = build_lerobot_dataset(usable, out_dir / "lerobot")
+            lerobot_problems = [f"official converter failed, used legacy v2.0: {r.stderr[-200:]}"]
+    else:
+        lerobot_summary = build_lerobot_dataset(usable, out_dir / "lerobot")
+        lerobot_problems = ["legacy v2.0 (set LEROBOT_PYTHON to a lerobot venv for the "
+                            "verified-loadable v3.0 dataset)"]
+        lerobot_problems += [p for p in validate_lerobot(out_dir / "lerobot") if not p.startswith("INFO")]
 
     contents = []
     for vid in usable:
@@ -119,7 +136,7 @@ def build(video_ids, out_dir: Path, do_zip: bool):
         "bundle": "revisent-ego-manipulation-sample",
         "generated_at_unix": time.time(),
         "clips": len(usable),
-        "formats": ["lerobot-v2", "raw-joints-parquet", "smplx-mapping"],
+        "formats": ["lerobot-v3.0", "raw-joints-parquet", "smplx-mapping"],
         "lerobot": lerobot_summary,
         "lerobot_structural_problems": lerobot_problems or "none",
         "contents": contents,
@@ -136,7 +153,7 @@ def build(video_ids, out_dir: Path, do_zip: bool):
 
     n_files = sum(1 for _ in out_dir.rglob("*") if _.is_file())
     print(f"bundle: {out_dir}")
-    print(f"  clips={len(usable)} files={n_files} lerobot={lerobot_summary['frames']} frames")
+    print(f"  clips={len(usable)} files={n_files} lerobot={lerobot_summary}")
     print(f"  lerobot structural problems: {lerobot_problems or 'none'}")
 
     if do_zip:

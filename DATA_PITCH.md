@@ -29,13 +29,16 @@ Delivered in **LeRobot** (loads in one command), **SMPL-X/MANO**, or raw joints+
 The pipeline is the easy part — **access is the moat.** We have the operator relationships to instrument **real industrial workforces at scale**, in environments you can't reach. The more we collect, the larger the gap between our data and anything you can replicate.
 
 ## Try it
-A **sample dataset loads in one command** — drop it straight into your pipeline:
+A **sample dataset loads in one command** — verified in vanilla LeRobot (v3.0):
 ```python
-pip install lerobot
-from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
-ds = LeRobotDataset(repo_id="revisent-sample", root="…/sample_bundle/lerobot")
+pip install lerobot          # lerobot 0.5.1, verified
+from lerobot.datasets.lerobot_dataset import LeRobotDataset
+ds = LeRobotDataset(repo_id="revisent/ego-manipulation", root=".../sample_bundle/lerobot")
+ds[0]   # -> observation.state (51), observation.confidence (17), action (6), task, ...
 ```
-Raw joints need nothing but pandas. Full schema, kinematic tree, and provenance ship with the bundle.
+Built with LeRobot's own API, so it drops straight into your training pipeline.
+Prefer raw? `pandas.read_parquet` on the joints file needs nothing else. Full
+schema, kinematic tree, and per-joint provenance ship with the bundle.
 
 ## Honest scope
 A head/chest camera **measures hands and torso motion and infers the rest** (it can't see the wearer's legs) — every joint is labeled so you're never guessing. We sell the measured signal (hands + manipulation) and are transparent about the inferred parts. The detector is a strong off-the-shelf model; **our value is the data: real worksites, at scale, that nobody else has.**
