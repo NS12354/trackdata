@@ -43,6 +43,10 @@ function Rig({
 
   const bonesRef = useRef<Record<string, THREE.Bone>>({});
   const restRef = useRef<Record<string, { q: THREE.Quaternion; dir: THREE.Vector3 }>>({});
+  // Maps OUR pose frame (+X right, +Y up, +Z forward) into the rig's actual world
+  // frame, derived from the rig's own bind pose (so FBX import orientation/handedness
+  // is handled automatically).
+  const basisRef = useRef(new THREE.Matrix4());
   const hudRef = useRef<HTMLDivElement>(null);
   const matchedRef = useRef(0);
   const hTimes = useMemo(() => frames.map((f) => f.timestamp_ms), [frames]);
@@ -69,6 +73,23 @@ function Rig({
     model.position.z -= (box2.min.z + box2.max.z) / 2;
     model.position.y -= box2.min.y;
     model.updateMatrixWorld(true);
+
+    // Derive the rig's world axes from its bind pose:
+    //   right  = from the character's left shoulder to right shoulder
+    //   up     = world +Y (standing)
+    //   forward= right × up  (right-handed)
+    const la = bones[norm("LeftArm")], ra = bones[norm("RightArm")];
+    const rigUp = new THREE.Vector3(0, 1, 0);
+    let rigRight = new THREE.Vector3(1, 0, 0);
+    if (la && ra) {
+      const lp = new THREE.Vector3(), rp = new THREE.Vector3();
+      la.getWorldPosition(lp); ra.getWorldPosition(rp);
+      rigRight = rp.sub(lp);                                  // L->R = character right
+      rigRight.addScaledVector(rigUp, -rigRight.dot(rigUp));  // orthonormalize vs up
+      rigRight.normalize();
+    }
+    const rigForward = new THREE.Vector3().crossVectors(rigRight, rigUp).normalize();
+    basisRef.current = new THREE.Matrix4().makeBasis(rigRight, rigUp, rigForward);
 
     const rest: Record<string, { q: THREE.Quaternion; dir: THREE.Vector3 }> = {};
     let matched = 0;
@@ -109,12 +130,10 @@ function Rig({
       const b = bones[norm(d.bone)], r = rest[norm(d.bone)];
       if (!b || !r) continue;
       const from = j[d.from], to = j[d.to];
-      // Mirror X: our pose space has +X = subject's right, but the Mixamo rig's
-      // bind arms point the opposite way. Without this the upper-arm aim is ~180°
-      // off, which folds the joint and flings the forearm off.
-      tmpV.set(-(to[0] - from[0]), to[1] - from[1], to[2] - from[2]);
+      tmpV.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
       if (tmpV.lengthSq() < 1e-9) continue;
-      tmpV.normalize();
+      // Map our pose direction into the rig's actual world frame, then aim the bone.
+      tmpV.transformDirection(basisRef.current);
       tmpQ.setFromUnitVectors(r.dir, tmpV).multiply(r.q);
       if (b.parent) {
         b.parent.updateWorldMatrix(true, false);
