@@ -70,9 +70,46 @@ export function quatToEuler(q: [number, number, number, number]) {
   return { yaw, pitch, roll };
 }
 
+// Render a hand at a body-space wrist anchor. Uses the live 21-point landmarks
+// when the hand is tracked; otherwise draws a static "resting" hand so BOTH
+// hands are always shown — an untracked/idle hand stays stagnant at the posed
+// body's side. plotly axes here: x=right, y=depth(z), z=up(y).
+function handAtWrist(wrist: V3, lms: Landmark[] | null, color: string) {
+  const lineTrace = (pairs: [V3, V3][]) => {
+    const x: (number | null)[] = [], y: (number | null)[] = [], z: (number | null)[] = [];
+    for (const [a, b] of pairs) { x.push(a[0], b[0], null); y.push(a[2], b[2], null); z.push(a[1], b[1], null); }
+    return { x, y, z, type: "scatter3d", mode: "lines", line: { color, width: 4 }, hoverinfo: "skip", showlegend: false };
+  };
+  if (lms && lms.length >= 21) {
+    // Attach the measured hand at the body wrist: positions relative to the
+    // hand's own wrist (landmark 0), scaled from normalized-image to body meters.
+    const w0 = lms[0], s = 0.7;
+    const P: V3[] = lms.map((p) => [
+      wrist[0] + (p[0] - w0[0]) * s,
+      wrist[1] - (p[1] - w0[1]) * s,
+      wrist[2] + (p[2] - w0[2]) * s,
+    ]);
+    const bones = HAND_CONNECTIONS.map(([a, b]) => [P[a], P[b]] as [V3, V3]);
+    return [
+      lineTrace(bones),
+      { x: P.map((p) => p[0]), y: P.map((p) => p[2]), z: P.map((p) => p[1]),
+        type: "scatter3d", mode: "markers", marker: { color, size: 2.5 }, hoverinfo: "skip", showlegend: false },
+    ];
+  }
+  // Static resting hand: a small fan of fingers hanging from the wrist.
+  const rest: [V3, V3][] = [-0.045, -0.022, 0, 0.022, 0.045].map((dx) => {
+    const knuckle: V3 = [wrist[0] + dx, wrist[1] - 0.02, wrist[2] + 0.02];
+    const tip: V3 = [wrist[0] + dx * 1.1, wrist[1] - 0.1, wrist[2] + 0.05];
+    return [knuckle, tip] as [V3, V3];
+  });
+  rest.push([wrist, [wrist[0], wrist[1] - 0.04, wrist[2] + 0.02]]);
+  return [lineTrace(rest)];
+}
+
 function bodyTraces(
   H: number,
-  frame: HandPoseFrame | null,
+  leftHand: Landmark[] | null,
+  rightHand: Landmark[] | null,
   head: { yaw: number; pitch: number; roll: number } | null
 ) {
   const joints: Record<string, V3> = {
@@ -108,8 +145,8 @@ function bodyTraces(
   const lSh = joints.lSh, rSh = joints.rSh;
   const Lu = 0.17 * H,
     Lf = 0.15 * H;
-  const lArm = ik(lSh, wristTarget(frame?.left_hand_landmarks?.[0], H, -1, lSh), Lu, Lf);
-  const rArm = ik(rSh, wristTarget(frame?.right_hand_landmarks?.[0], H, 1, rSh), Lu, Lf);
+  const lArm = ik(lSh, wristTarget(leftHand?.[0], H, -1, lSh), Lu, Lf);
+  const rArm = ik(rSh, wristTarget(rightHand?.[0], H, 1, rSh), Lu, Lf);
 
   const torso: [V3, V3][] = [
     [joints.headTop, joints.neck], [joints.neck, joints.chest], [joints.chest, joints.pelvis],
@@ -138,6 +175,9 @@ function bodyTraces(
       type: "scatter3d", mode: "markers", marker: { color: "#3b82f6", size: 6 },
       hoverinfo: "skip", showlegend: false,
     },
+    // Both hands, always: live when tracked, static-resting at the side otherwise.
+    ...handAtWrist(lArm.wrist, leftHand, "#22c55e"),
+    ...handAtWrist(rArm.wrist, rightHand, "#38bdf8"),
   ];
 }
 
@@ -187,6 +227,10 @@ export default function Pose3D({
   const [frame, setFrame] = useState<HandPoseFrame | null>(frames[0] ?? null);
   const [head, setHead] = useState<HeadPoseFrameT | null>(headFrames[0] ?? null);
   const lastTs = useRef(-1);
+  // Last-seen landmarks per hand, so a hand that stops being detected stays
+  // stagnant (resting at the body's side) instead of flickering out.
+  const lastLeft = useRef<Landmark[] | null>(null);
+  const lastRight = useRef<Landmark[] | null>(null);
 
   useEffect(() => {
     const hTimes = frames.map((f) => f.timestamp_ms);
@@ -209,7 +253,10 @@ export default function Pose3D({
         const ms = v.currentTime * 1000;
         if (Math.abs(ms - lastTs.current) > 80) {
           lastTs.current = ms;
-          setFrame(nearest(frames, hTimes, ms));
+          const nf = nearest(frames, hTimes, ms);
+          setFrame(nf);
+          if (nf?.left_hand_landmarks) lastLeft.current = nf.left_hand_landmarks;
+          if (nf?.right_hand_landmarks) lastRight.current = nf.right_hand_landmarks;
           setHead(nearest(headFrames, kTimes, ms));
         }
       }
@@ -221,9 +268,12 @@ export default function Pose3D({
 
   const H = (operatorHeightCm || 170) / 100;
   const headEuler = head?.tracked ? quatToEuler(head.quaternion) : null;
+  // Effective hands: live this frame, else the last-seen pose (kept stagnant).
+  const effLeft = frame?.left_hand_landmarks ?? lastLeft.current;
+  const effRight = frame?.right_hand_landmarks ?? lastRight.current;
   const handData = [
-    ...handTraces(frame?.left_hand_landmarks ?? null, "#22c55e"),
-    ...handTraces(frame?.right_hand_landmarks ?? null, "#38bdf8"),
+    ...handTraces(effLeft, "#22c55e"),
+    ...handTraces(effRight, "#38bdf8"),
   ];
   const hasHands = handData.length > 0;
 
@@ -244,7 +294,7 @@ export default function Pose3D({
       </Panel3D>
       <Panel3D title="Body pose (head-driven estimate)">
         <Plot
-          data={bodyTraces(H, frame, headEuler) as any}
+          data={bodyTraces(H, effLeft, effRight, headEuler) as any}
           layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
           config={{ displayModeBar: false, responsive: true } as any}
           style={{ width: "100%", height: "260px" }}
