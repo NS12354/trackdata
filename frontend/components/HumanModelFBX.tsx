@@ -109,7 +109,10 @@ function Rig({
       const b = bones[norm(d.bone)], r = rest[norm(d.bone)];
       if (!b || !r) continue;
       const from = j[d.from], to = j[d.to];
-      tmpV.set(to[0] - from[0], to[1] - from[1], to[2] - from[2]);
+      // Mirror X: our pose space has +X = subject's right, but the Mixamo rig's
+      // bind arms point the opposite way. Without this the upper-arm aim is ~180°
+      // off, which folds the joint and flings the forearm off.
+      tmpV.set(-(to[0] - from[0]), to[1] - from[1], to[2] - from[2]);
       if (tmpV.lengthSq() < 1e-9) continue;
       tmpV.normalize();
       tmpQ.setFromUnitVectors(r.dir, tmpV).multiply(r.q);
