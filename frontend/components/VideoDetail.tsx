@@ -2,14 +2,10 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { Panel, StatusBadge } from "@/components/ui";
 
-// Three.js humanoid is client-only (WebGL) — load without SSR.
-// Procedural mannequin (renders cleanly). The FBX Y Bot rig (HumanModelFBX) is
-// WIP — parked due to Mixamo pivot-node retargeting; revisit when pose accuracy
-// is validated.
-const HumanModel3D = dynamic(() => import("@/components/HumanModel3D"), { ssr: false });
+// NOTE: 3D rig panel removed for now (kept in repo: HumanModel3D.tsx procedural,
+// HumanModelFBX.tsx Mixamo Y Bot WIP). Re-add when pose accuracy is validated.
 import { fmtDuration, fmtPct, fmtDate } from "@/lib/format";
 import { exportBundleUrl } from "@/lib/api";
 import HandPoseOverlay from "@/components/HandPoseOverlay";
@@ -147,22 +143,6 @@ export default function VideoDetail({
           operatorHeightCm={operatorHeight || 170}
         />
       </div>
-
-      {/* Full 3D humanoid driven by the tracked pose */}
-      <Panel className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          <div className="text-sm font-medium">3D model · driven by the tracked pose</div>
-          <div className="text-xs text-muted">drag to orbit · animates with the video</div>
-        </div>
-        <div style={{ height: 440 }} className="bg-[#0b0e13]">
-          <HumanModel3D
-            videoRef={videoRef}
-            frames={handpose?.frames ?? []}
-            headFrames={headpose?.frames ?? []}
-            operatorHeightCm={operatorHeight || 170}
-          />
-        </div>
-      </Panel>
 
       {/* Timeline + metrics */}
       <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
