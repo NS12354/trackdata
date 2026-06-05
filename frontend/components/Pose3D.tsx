@@ -292,15 +292,9 @@ export default function Pose3D({
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      <Panel3D title="Body pose (head-driven estimate)">
-        <Plot
-          data={bodyTraces(H, effLeft, effRight, headEuler) as any}
-          layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
-          config={{ displayModeBar: false, responsive: true } as any}
-          style={{ width: "100%", height: "260px" }}
-          useResizeHandler
-        />
-      </Panel3D>
+      {/* Body-pose (head-driven estimate) panel hidden — it's an INFERRED body
+          (chest cam can't see torso/legs) and reads as weak to sophisticated
+          buyers. Code kept (bodyTraces) for internal use / future. */}
     </div>
   );
 }
