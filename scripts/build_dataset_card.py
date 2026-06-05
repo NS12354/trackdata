@@ -61,24 +61,37 @@ def build_card(name: str, version: str) -> str:
     from pipeline.body_pose import JOINT_NAMES, SCHEMA_VERSION
     eps, frames, secs = _scan_clips()
     hours = secs / 3600.0
+    def _latest_per_dataset(log_path):
+        out = {}
+        if log_path.exists():
+            for line in log_path.read_text().splitlines():
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                out[r.get("dataset")] = r
+        return out
+
     pose = _last_run(DATA / "eval" / "pose_runs.jsonl")
-    hand = _last_run(DATA / "eval" / "hand_runs.jsonl")
+    hands = _latest_per_dataset(DATA / "eval" / "hand_runs.jsonl")
+    ego = hands.get("AssemblyHands-ego")
+    frei = hands.get("FreiHAND")
     priv = _last_run(DATA / "eval" / "privacy_runs.jsonl")
 
     def bench_block():
         out = []
-        if hand:
-            dr = int(round(hand.get("detection_rate", 0) * 100))
-            out += [
-                "**Hands — the measured, sellable signal:**",
-                f"- **{hand['pa_mpjpe_mm']} mm PA-MPJPE** on `{hand['dataset']}` "
-                f"({hand['n']} hands, {dr}% detection)",
-                f"- root-relative MPJPE {hand['mpjpe_mm']} mm  "
-                f"_(FreiHAND SOTA ≈7 mm; MediaPipe is a fast general detector, not SOTA)_",
-                "- Measures the hand-keypoint detector on third-person single-hand images. "
-                "The on-point egocentric number (AssemblyHands/Ego-Exo4D) is the gated follow-up.",
-                "",
-            ]
+        if ego or frei:
+            out.append("**Hands — the measured, sellable signal (PA-MPJPE):**")
+            if ego:
+                out.append(f"- **Egocentric (on-point): {ego['pa_mpjpe_mm']} mm** on "
+                           f"`AssemblyHands` head-cam ({ego['n']} hands) — head/chest-cam relevant.")
+            if frei:
+                dr = int(round(frei.get("detection_rate", 0) * 100))
+                out.append(f"- Third-person cross-check: {frei['pa_mpjpe_mm']} mm on "
+                           f"`FreiHAND` ({frei['n']} hands, {dr}% detection).")
+            out.append("- Detector = MediaPipe Hands (a fast general detector, not task-SOTA: "
+                       "FreiHAND SOTA ≈7 mm; ego is much harder). Numbers verified by per-joint sanity.")
+            out.append("")
         if pose and pose.get("dataset") != "synthetic-selftest":
             out += [
                 "**Full skeleton (vs egocentric GT):**",

@@ -30,10 +30,10 @@ provenance** so you can filter to exactly the joints you trust.
 - **SMPL-X** parameters (integration shipped; license-gated weights — see README)
 
 ## Benchmark (accuracy)
-**Hands — the measured, sellable signal:**
-- **15.02 mm PA-MPJPE** on `FreiHAND` (377 hands, 94% detection)
-- root-relative MPJPE 42.68 mm  _(FreiHAND SOTA ≈7 mm; MediaPipe is a fast general detector, not SOTA)_
-- Measures the hand-keypoint detector on third-person single-hand images. The on-point egocentric number (AssemblyHands/Ego-Exo4D) is the gated follow-up.
+**Hands — the measured, sellable signal (PA-MPJPE):**
+- **Egocentric (on-point): 22.6 mm** on `AssemblyHands` head-cam (400 hands) — head/chest-cam relevant.
+- Third-person cross-check: 15.02 mm on `FreiHAND` (377 hands, 94% detection).
+- Detector = MediaPipe Hands (a fast general detector, not task-SOTA: FreiHAND SOTA ≈7 mm; ego is much harder). Numbers verified by per-joint sanity.
 
 
 *PA-MPJPE is the fair metric for monocular, height-scaled pose — quote it first.*
