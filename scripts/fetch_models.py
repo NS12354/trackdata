@@ -18,6 +18,13 @@ MODELS = {
                "face_detection_yunet/face_detection_yunet_2023mar.onnx",
         "sha256": None,  # set to pin integrity if desired
     },
+    # EAST scene-text detector (~92MB) for text/PII blurring (unit numbers, mail,
+    # plates, screens, whiteboards).
+    "frozen_east_text_detection.pb": {
+        "url": "https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/"
+               "frozen_east_text_detection.pb",
+        "sha256": None,
+    },
 }
 
 

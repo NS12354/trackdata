@@ -131,6 +131,25 @@ class Settings(BaseSettings):
     # Path to the YuNet ONNX weights (downloaded by scripts/fetch_models.py).
     yunet_model_path: str = str(BACKEND_DIR / "ml_models" / "face_detection_yunet_2023mar.onnx")
 
+    # --- Text / PII blurring (EAST scene-text detection) ---
+    # Blur text regions so unit/apartment numbers, mail & package labels,
+    # whiteboards, license plates, and on-screen text are removed — critical for
+    # footage shot inside homes/buildings. We locate text (don't read it) and bias
+    # toward recall: blurring a bit extra is safe, leaking PII is not.
+    enable_text_blur: bool = True
+    east_model_path: str = str(BACKEND_DIR / "ml_models" / "frozen_east_text_detection.pb")
+    # EAST working resolution (multiple of 32). Higher = catches smaller text
+    # (door numbers, mail) but slower. 512 is a good balance for HD frames.
+    text_detection_size: int = 512
+    text_score_threshold: float = 0.5
+    text_nms_threshold: float = 0.4
+    # Text is near-static frame-to-frame, so detect every Nth frame and carry the
+    # boxes forward across the skipped frames (cheap, no leak).
+    text_detection_stride: int = 5
+    # Pad each text box outward this fraction before blurring (cover character
+    # edges / adjacent text). Generous on purpose.
+    text_box_padding: float = 0.25
+
     # --- Hand pose (Phase 2, MediaPipe Hands) ---
     # Frames per second to sample for hand-keypoint extraction. 10fps keeps CPU
     # cost down and is smooth enough for the dashboard overlay; recorded in the

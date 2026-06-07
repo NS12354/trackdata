@@ -22,6 +22,7 @@ intentionally dropped in v1 (voices are PII we do not yet redact).
 from __future__ import annotations
 
 import functools
+import logging
 import shutil
 import subprocess
 from dataclasses import dataclass, asdict
@@ -35,6 +36,8 @@ from config import settings
 from .video_meta import VideoMeta, apply_rotation
 from .orientation import resolve_video_meta
 from .face_detector import get_face_detector
+
+log = logging.getLogger("revisent.anonymize")
 
 Box = Tuple[float, float, float, float]  # (x0, y0, x1, y1) in pixels
 
@@ -366,9 +369,24 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     # are bridged by the temporal gap-fill. per_frame keeps one slot per source
     # frame so indices align with the blur pass.
     per_frame: List[List[Tuple[Box, bool]]] = []
+    text_per_frame: List[List[Box]] = []
     candidate_detections = 0
+    text_box_total = 0
     stride = max(1, settings.face_detection_stride)
     detector = get_face_detector()
+    # Optional EAST text/PII detector (unit numbers, mail/labels, plates, screens,
+    # whiteboards). High-recall: we locate text and blur it generously.
+    text_detector = None
+    if settings.enable_text_blur:
+        try:
+            from .text_detector import get_text_detector
+            text_detector = get_text_detector()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("text/PII blur disabled (EAST unavailable): %s", exc)
+    text_pad = settings.text_box_padding
+    text_every = max(1, round(settings.text_detection_stride / stride))  # decoded frames
+    current_text: List[Box] = []
+    decoded = 0
     reader = _make_reader(input_path, meta)  # hardware decode when available
     try:
         idx = 0
@@ -381,14 +399,23 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
                 candidate_detections += len(dets)
                 # Pad each raw face box outward, carry the per-detector strong flag.
                 per_frame.append([(_dilate(d.box, pad), d.strong) for d in dets])
+                # Text is near-static frame-to-frame: detect every Nth decoded frame
+                # and carry the boxes forward across the skipped frames.
+                if text_detector is not None and decoded % text_every == 0:
+                    current_text = [_dilate(b, text_pad) for b in text_detector.detect(frame)]
+                    text_box_total += len(current_text)
+                decoded += 1
             else:
                 if not reader.grab():  # advance without running detection
                     break
                 per_frame.append([])
+            text_per_frame.append(list(current_text))
             idx += 1
     finally:
         reader.close()
         detector.close()
+        if text_detector is not None:
+            text_detector.close()
 
     frames_total = len(per_frame)
 
@@ -420,6 +447,9 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
             if idx < len(filled):
                 for box in filled[idx]:
                     _blur_box(frame, box, strength)
+            if idx < len(text_per_frame):
+                for box in text_per_frame[idx]:
+                    _blur_box(frame, box, strength)
             if ff is not None:
                 ff.stdin.write(frame.tobytes())
             else:
@@ -441,7 +471,8 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     mean_faces = (total_detections / frames_total) if frames_total else 0.0
 
     return AnonymizationResult(
-        method=f"{settings.face_detector}+opencv_blur+temporal_tracking+confirmation",
+        method=(f"{settings.face_detector}+opencv_blur+temporal_tracking+confirmation"
+                + ("+east_text_pii" if settings.enable_text_blur else "")),
         frames_total=frames_total,
         frames_with_faces=frames_with_faces,
         frames_blurred=frames_blurred,
