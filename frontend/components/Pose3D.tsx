@@ -225,8 +225,10 @@ const LAYOUT_BASE = {
 // Fixed 3/4 camera angle (matches the reference) + rotation disabled.
 const HAND_CAM = { eye: { x: -1.25, y: -1.6, z: 0.65 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
 const BODY_CAM = { eye: { x: -1.25, y: -1.7, z: 0.45 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
-const SCENE_HAND = { ...SCENE, camera: HAND_CAM, dragmode: false as const };
-const SCENE_BODY = { ...SCENE, camera: BODY_CAM, dragmode: false as const };
+// Rotation re-enabled + a live camera readout so you can dial in the exact view
+// and hand me the numbers to lock. (uirevision keeps your rotation across frames.)
+const SCENE_HAND = { ...SCENE, camera: HAND_CAM };
+const SCENE_BODY = { ...SCENE, camera: BODY_CAM };
 
 export default function Pose3D({
   videoRef,
@@ -241,6 +243,13 @@ export default function Pose3D({
 }) {
   const [frame, setFrame] = useState<HandPoseFrame | null>(frames[0] ?? null);
   const [head, setHead] = useState<HeadPoseFrameT | null>(headFrames[0] ?? null);
+  // Live camera readout — rotate to the view you want, read these numbers to me.
+  const [handCam, setHandCam] = useState("");
+  const [bodyCam, setBodyCam] = useState("");
+  const camReadout = (e: any, set: (s: string) => void) => {
+    const c = e?.["scene.camera"]?.eye;
+    if (c) set(`eye {x:${c.x.toFixed(2)}, y:${c.y.toFixed(2)}, z:${c.z.toFixed(2)}}`);
+  };
   const lastTs = useRef(-1);
   // Last-seen landmarks per hand, so a hand that stops being detected stays
   // stagnant (resting at the body's side) instead of flickering out.
@@ -294,25 +303,27 @@ export default function Pose3D({
 
   return (
     <div className="space-y-3">
-      <Panel3D title="3D hand pose · both hands">
+      <Panel3D title="3D hand pose · both hands" hint={handCam}>
         {hasHands ? (
           <Plot
             data={handData as any}
             layout={{ ...LAYOUT_BASE, scene: SCENE_HAND } as any}
-            config={{ displayModeBar: false, responsive: true, scrollZoom: false } as any}
+            config={{ displayModeBar: false, responsive: true } as any}
             style={{ width: "100%", height: "250px" }}
+            onRelayout={(e: any) => camReadout(e, setHandCam)}
             useResizeHandler
           />
         ) : (
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      <Panel3D title="3D body + hands">
+      <Panel3D title="3D body + hands" hint={bodyCam}>
         <Plot
           data={bodyTraces(H, effLeft, effRight, headEuler) as any}
           layout={{ ...LAYOUT_BASE, scene: SCENE_BODY } as any}
-          config={{ displayModeBar: false, responsive: true, scrollZoom: false } as any}
+          config={{ displayModeBar: false, responsive: true } as any}
           style={{ width: "100%", height: "300px" }}
+          onRelayout={(e: any) => camReadout(e, setBodyCam)}
           useResizeHandler
         />
       </Panel3D>
@@ -320,11 +331,12 @@ export default function Pose3D({
   );
 }
 
-function Panel3D({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel3D({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-3 py-1.5 text-xs">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 text-xs">
         <span className="font-medium text-slate-700">{title}</span>
+        {hint && <span className="font-mono text-[10px] text-slate-400">{hint}</span>}
       </div>
       {children}
     </div>
