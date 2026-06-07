@@ -166,18 +166,22 @@ function bodyTraces(
   const line = (s: ReturnType<typeof seg>, color: string, w = 5) => ({
     ...s, type: "scatter3d", mode: "lines", line: { color, width: w }, hoverinfo: "skip", showlegend: false,
   });
+  const dots = (pts: V3[], color: string, size = 5) => ({
+    x: pts.map((p) => p[0]), y: pts.map((p) => p[2]), z: pts.map((p) => p[1]),
+    type: "scatter3d", mode: "markers", marker: { color, size }, hoverinfo: "skip", showlegend: false,
+  });
   return [
     line(seg(torso), "#94a3b8", 5),
     line(seg([[lSh, lArm.elbow], [lArm.elbow, lArm.wrist]]), "#22c55e", 6),
     line(seg([[rSh, rArm.elbow], [rArm.elbow, rArm.wrist]]), "#ef4444", 6),
-    {
-      x: [joints.headTop[0]], y: [joints.headTop[2]], z: [joints.headTop[1]],
-      type: "scatter3d", mode: "markers", marker: { color: "#3b82f6", size: 6 },
-      hoverinfo: "skip", showlegend: false,
-    },
+    // Per-joint markers, colored by side: left green, right red, centre gray, head blue.
+    dots([joints.neck, joints.chest, joints.pelvis], "#94a3b8", 5),
+    dots([lSh, lArm.elbow, joints.lHip, joints.lKnee, joints.lAnk], "#22c55e", 5),
+    dots([rSh, rArm.elbow, joints.rHip, joints.rKnee, joints.rAnk], "#ef4444", 5),
+    dots([joints.headTop], "#3b82f6", 7),
     // Both hands, always: live when tracked, static-resting at the side otherwise.
     ...handAtWrist(lArm.wrist, leftHand, "#22c55e"),
-    ...handAtWrist(rArm.wrist, rightHand, "#38bdf8"),
+    ...handAtWrist(rArm.wrist, rightHand, "#ef4444"),
   ];
 }
 
@@ -193,7 +197,7 @@ function handTraces(lms: Landmark[] | null, color: string) {
     { x: px, y: py, z: pz, type: "scatter3d", mode: "lines", line: { color, width: 4 }, hoverinfo: "skip", showlegend: false },
     {
       x: lms.map((p) => p[0]), y: lms.map((p) => p[2]), z: lms.map((p) => -p[1]),
-      type: "scatter3d", mode: "markers", marker: { color: "#ef4444", size: 3 },
+      type: "scatter3d", mode: "markers", marker: { color, size: 3 },
       hoverinfo: "skip", showlegend: false,
     },
   ];
@@ -273,7 +277,7 @@ export default function Pose3D({
   const effRight = frame?.right_hand_landmarks ?? lastRight.current;
   const handData = [
     ...handTraces(effLeft, "#22c55e"),
-    ...handTraces(effRight, "#38bdf8"),
+    ...handTraces(effRight, "#ef4444"),
   ];
   const hasHands = handData.length > 0;
 
