@@ -222,6 +222,12 @@ const LAYOUT_BASE = {
   uirevision: "keep", // preserve camera angle across updates
 };
 
+// Fixed 3/4 camera angle (matches the reference) + rotation disabled.
+const HAND_CAM = { eye: { x: -1.25, y: -1.6, z: 0.65 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
+const BODY_CAM = { eye: { x: -1.25, y: -1.7, z: 0.45 }, up: { x: 0, y: 0, z: 1 }, center: { x: 0, y: 0, z: 0 } };
+const SCENE_HAND = { ...SCENE, camera: HAND_CAM, dragmode: false as const };
+const SCENE_BODY = { ...SCENE, camera: BODY_CAM, dragmode: false as const };
+
 export default function Pose3D({
   videoRef,
   frames,
@@ -292,8 +298,8 @@ export default function Pose3D({
         {hasHands ? (
           <Plot
             data={handData as any}
-            layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
-            config={{ displayModeBar: false, responsive: true } as any}
+            layout={{ ...LAYOUT_BASE, scene: SCENE_HAND } as any}
+            config={{ displayModeBar: false, responsive: true, scrollZoom: false } as any}
             style={{ width: "100%", height: "250px" }}
             useResizeHandler
           />
@@ -304,8 +310,8 @@ export default function Pose3D({
       <Panel3D title="3D body + hands">
         <Plot
           data={bodyTraces(H, effLeft, effRight, headEuler) as any}
-          layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
-          config={{ displayModeBar: false, responsive: true } as any}
+          layout={{ ...LAYOUT_BASE, scene: SCENE_BODY } as any}
+          config={{ displayModeBar: false, responsive: true, scrollZoom: false } as any}
           style={{ width: "100%", height: "300px" }}
           useResizeHandler
         />
@@ -317,9 +323,8 @@ export default function Pose3D({
 function Panel3D({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
+      <div className="border-b border-slate-200 px-3 py-1.5 text-xs">
         <span className="font-medium text-slate-700">{title}</span>
-        <span className="text-[10px]">drag to rotate</span>
       </div>
       {children}
     </div>
