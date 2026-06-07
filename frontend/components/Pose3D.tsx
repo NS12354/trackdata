@@ -213,7 +213,10 @@ const SCENE = {
   xaxis: { ...AXIS, title: "X" },
   yaxis: { ...AXIS, title: "Y" },
   zaxis: { ...AXIS, title: "Z" },
-  aspectmode: "data" as const,
+  // Manual/equal aspect so the shallow depth axis isn't compressed flat — each
+  // axis gets equal visual space, giving the hand real 3D depth.
+  aspectmode: "manual" as const,
+  aspectratio: { x: 1, y: 1, z: 1 },
 };
 const LAYOUT_BASE = {
   paper_bgcolor: "#ffffff",
@@ -243,13 +246,51 @@ export default function Pose3D({
 }) {
   const [frame, setFrame] = useState<HandPoseFrame | null>(frames[0] ?? null);
   const [head, setHead] = useState<HeadPoseFrameT | null>(headFrames[0] ?? null);
-  // Live camera readout — rotate to the view you want, read these numbers to me.
-  const [handCam, setHandCam] = useState("");
-  const [bodyCam, setBodyCam] = useState("");
-  const camReadout = (e: any, set: (s: string) => void) => {
-    const c = e?.["scene.camera"]?.eye;
-    if (c) set(`eye {x:${c.x.toFixed(2)}, y:${c.y.toFixed(2)}, z:${c.z.toFixed(2)}}`);
+  // --- Interactive camera capture + lock (no guessing) ---
+  // Free rotation by default. On every rotation the FULL camera object is shown
+  // on-screen and logged to console. "Lock view" captures the exact camera and
+  // disables rotation; it persists across refreshes via localStorage.
+  const [handLock, setHandLock] = useState<any>(null);
+  const [bodyLock, setBodyLock] = useState<any>(null);
+  const [handLive, setHandLive] = useState<any>(HAND_CAM);
+  const [bodyLive, setBodyLive] = useState<any>(BODY_CAM);
+  useEffect(() => {
+    try {
+      const h = localStorage.getItem("pose_handcam");
+      if (h) { const c = JSON.parse(h); setHandLock(c); setHandLive(c); }
+      const b = localStorage.getItem("pose_bodycam");
+      if (b) { const c = JSON.parse(b); setBodyLock(c); setBodyLive(c); }
+    } catch { /* ignore */ }
+  }, []);
+  const onRelay = (e: any, setLive: (c: any) => void) => {
+    const c = e?.["scene.camera"];
+    if (c?.eye) {
+      const cam = { eye: c.eye, center: c.center, up: c.up };
+      setLive(cam);
+      // eslint-disable-next-line no-console
+      console.log("[Pose3D camera]", JSON.stringify(cam));
+    }
   };
+  const lockView = (live: any, setLock: (c: any) => void, key: string) => {
+    setLock(live);
+    try { localStorage.setItem(key, JSON.stringify(live)); } catch { /* ignore */ }
+  };
+  const unlockView = (setLock: (c: any) => void, key: string) => {
+    setLock(null);
+    try { localStorage.removeItem(key); } catch { /* ignore */ }
+  };
+  const camControls = (live: any, locked: any, setLock: (c: any) => void, key: string) => (
+    <div className="flex items-center gap-2 font-mono text-[10px] text-slate-400">
+      <span>{live?.eye ? `eye(${live.eye.x.toFixed(2)}, ${live.eye.y.toFixed(2)}, ${live.eye.z.toFixed(2)})` : "—"}</span>
+      {locked ? (
+        <button onClick={() => unlockView(setLock, key)}
+          className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50">🔓 unlock</button>
+      ) : (
+        <button onClick={() => lockView(live, setLock, key)}
+          className="rounded border border-emerald-400 bg-emerald-50 px-1.5 py-0.5 text-emerald-700 hover:bg-emerald-100">📌 lock view</button>
+      )}
+    </div>
+  );
   const lastTs = useRef(-1);
   // Last-seen landmarks per hand, so a hand that stops being detected stays
   // stagnant (resting at the body's side) instead of flickering out.
@@ -303,27 +344,29 @@ export default function Pose3D({
 
   return (
     <div className="space-y-3">
-      <Panel3D title="3D hand pose · both hands" hint={handCam}>
+      <Panel3D title="3D hand pose · both hands"
+        controls={camControls(handLive, handLock, setHandLock, "pose_handcam")}>
         {hasHands ? (
           <Plot
             data={handData as any}
-            layout={{ ...LAYOUT_BASE, scene: SCENE_HAND } as any}
+            layout={{ ...LAYOUT_BASE, scene: { ...SCENE, camera: handLock ?? HAND_CAM, ...(handLock ? { dragmode: false } : {}) } } as any}
             config={{ displayModeBar: false, responsive: true } as any}
             style={{ width: "100%", height: "250px" }}
-            onRelayout={(e: any) => camReadout(e, setHandCam)}
+            onRelayout={(e: any) => onRelay(e, setHandLive)}
             useResizeHandler
           />
         ) : (
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      <Panel3D title="3D body + hands" hint={bodyCam}>
+      <Panel3D title="3D body + hands"
+        controls={camControls(bodyLive, bodyLock, setBodyLock, "pose_bodycam")}>
         <Plot
           data={bodyTraces(H, effLeft, effRight, headEuler) as any}
-          layout={{ ...LAYOUT_BASE, scene: SCENE_BODY } as any}
+          layout={{ ...LAYOUT_BASE, scene: { ...SCENE, camera: bodyLock ?? BODY_CAM, ...(bodyLock ? { dragmode: false } : {}) } } as any}
           config={{ displayModeBar: false, responsive: true } as any}
           style={{ width: "100%", height: "300px" }}
-          onRelayout={(e: any) => camReadout(e, setBodyCam)}
+          onRelayout={(e: any) => onRelay(e, setBodyLive)}
           useResizeHandler
         />
       </Panel3D>
@@ -331,12 +374,12 @@ export default function Pose3D({
   );
 }
 
-function Panel3D({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Panel3D({ title, controls, children }: { title: string; controls?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 text-xs">
         <span className="font-medium text-slate-700">{title}</span>
-        {hint && <span className="font-mono text-[10px] text-slate-400">{hint}</span>}
+        {controls}
       </div>
       {children}
     </div>
