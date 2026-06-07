@@ -279,22 +279,28 @@ export default function Pose3D({
 
   return (
     <div className="space-y-3">
-      <Panel3D title="3D hand pose">
+      <Panel3D title="3D hand pose · both hands">
         {hasHands ? (
           <Plot
             data={handData as any}
             layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
             config={{ displayModeBar: false, responsive: true } as any}
-            style={{ width: "100%", height: "240px" }}
+            style={{ width: "100%", height: "250px" }}
             useResizeHandler
           />
         ) : (
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      {/* Body-pose (head-driven estimate) panel hidden — it's an INFERRED body
-          (chest cam can't see torso/legs) and reads as weak to sophisticated
-          buyers. Code kept (bodyTraces) for internal use / future. */}
+      <Panel3D title="3D body + hands">
+        <Plot
+          data={bodyTraces(H, effLeft, effRight, headEuler) as any}
+          layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
+          config={{ displayModeBar: false, responsive: true } as any}
+          style={{ width: "100%", height: "300px" }}
+          useResizeHandler
+        />
+      </Panel3D>
     </div>
   );
 }

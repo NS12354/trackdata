@@ -16,6 +16,15 @@ import type {
   Video, SegmentsResponse, HandPoseResponse, HeadPoseResponse, VideoSummary,
 } from "@/lib/types";
 
+/** seconds -> HH:MM:SS.mmm */
+function fmtClock(s?: number): string {
+  if (s == null || isNaN(s)) return "—";
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60), ms = Math.floor((s % 1) * 1000);
+  return `${pad(h)}:${pad(m)}:${pad(sec)}.${pad(ms, 3)}`;
+}
+
 export default function VideoDetail({
   video,
   segments,
@@ -104,6 +113,20 @@ export default function VideoDetail({
               {hasHands && (
                 <HandPoseOverlay videoRef={videoRef} frames={handpose!.frames} enabled={overlay} />
               )}
+              {/* Active-skill overlay card */}
+              {ready && activeSeg && (
+                <div className="absolute left-3 top-3 max-w-[62%] rounded-lg bg-black/65 px-3 py-2 shadow-lg backdrop-blur-sm">
+                  <div className="text-[13px] font-semibold text-white">
+                    Skill: <span className="capitalize">{activeSeg.task_label || "activity"}</span>
+                  </div>
+                  {activeSeg.description && (
+                    <div className="mt-0.5 text-xs leading-snug text-slate-200">{activeSeg.description}</div>
+                  )}
+                  <div className="mt-1 font-mono text-[10px] text-slate-400">
+                    {fmtClock(activeSeg.start_time)} → {fmtClock(activeSeg.end_time)}
+                  </div>
+                </div>
+              )}
             </div>
             {/* Live commentary caption */}
             {activeSeg?.description && (
@@ -111,11 +134,15 @@ export default function VideoDetail({
                 {activeSeg.description}
               </div>
             )}
-            {/* Scene + operator height */}
+            {/* Environment + scene + operator height */}
             <div className="flex gap-10 border-t border-border px-4 py-3 text-sm">
               <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted">⌖ Environment</div>
+                <div className="mt-0.5">{video.property_tag || "—"}</div>
+              </div>
+              <div>
                 <div className="text-[11px] uppercase tracking-wide text-muted">⬚ Scene</div>
-                <div className="mt-0.5">{scene || "—"}</div>
+                <div className="mt-0.5 capitalize">{scene || "—"}</div>
               </div>
               <div>
                 <div className="text-[11px] uppercase tracking-wide text-muted">⬓ Operator height</div>
