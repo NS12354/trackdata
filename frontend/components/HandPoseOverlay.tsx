@@ -82,8 +82,8 @@ export default function HandPoseOverlay({
         if (enabled) {
           const f = nearest(video.currentTime * 1000);
           if (f) {
-            if (f.left_hand_landmarks) drawHand(ctx, f.left_hand_landmarks, w, h, "#22c55e", "#ef4444");
-            if (f.right_hand_landmarks) drawHand(ctx, f.right_hand_landmarks, w, h, "#38bdf8", "#ef4444");
+            if (f.left_hand_landmarks) drawHand(ctx, f.left_hand_landmarks, w, h, "#22c55e", "#16a34a");
+            if (f.right_hand_landmarks) drawHand(ctx, f.right_hand_landmarks, w, h, "#ef4444", "#dc2626");
           }
         }
       }

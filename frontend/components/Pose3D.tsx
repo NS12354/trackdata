@@ -171,11 +171,11 @@ function bodyTraces(
     type: "scatter3d", mode: "markers", marker: { color, size }, hoverinfo: "skip", showlegend: false,
   });
   return [
-    line(seg(torso), "#94a3b8", 5),
+    line(seg(torso), "#64748b", 5),
     line(seg([[lSh, lArm.elbow], [lArm.elbow, lArm.wrist]]), "#22c55e", 6),
     line(seg([[rSh, rArm.elbow], [rArm.elbow, rArm.wrist]]), "#ef4444", 6),
     // Per-joint markers, colored by side: left green, right red, centre gray, head blue.
-    dots([joints.neck, joints.chest, joints.pelvis], "#94a3b8", 5),
+    dots([joints.neck, joints.chest, joints.pelvis], "#64748b", 5),
     dots([lSh, lArm.elbow, joints.lHip, joints.lKnee, joints.lAnk], "#22c55e", 5),
     dots([rSh, rArm.elbow, joints.rHip, joints.rKnee, joints.rAnk], "#ef4444", 5),
     dots([joints.headTop], "#3b82f6", 7),
@@ -203,15 +203,20 @@ function handTraces(lms: Landmark[] | null, color: string) {
   ];
 }
 
+// Light mode (matches the reference): white scene, light grid, dark labels.
+const AXIS = {
+  color: "#475569", gridcolor: "#e5e7eb", zerolinecolor: "#cbd5e1",
+  showspikes: false, showbackground: false,
+};
 const SCENE = {
-  bgcolor: "#0b0e13",
-  xaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "X" },
-  yaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "Y" },
-  zaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "Z" },
+  bgcolor: "#ffffff",
+  xaxis: { ...AXIS, title: "X" },
+  yaxis: { ...AXIS, title: "Y" },
+  zaxis: { ...AXIS, title: "Z" },
   aspectmode: "data" as const,
 };
 const LAYOUT_BASE = {
-  paper_bgcolor: "#141a22",
+  paper_bgcolor: "#ffffff",
   margin: { l: 0, r: 0, t: 0, b: 0 },
   showlegend: false,
   uirevision: "keep", // preserve camera angle across updates
@@ -311,9 +316,9 @@ export default function Pose3D({
 
 function Panel3D({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border bg-panel">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs text-muted">
-        <span>{title}</span>
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
+        <span className="font-medium text-slate-700">{title}</span>
         <span className="text-[10px]">drag to rotate</span>
       </div>
       {children}
@@ -321,5 +326,5 @@ function Panel3D({ title, children }: { title: string; children: React.ReactNode
   );
 }
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="flex h-[240px] items-center justify-center text-xs text-muted">{children}</div>;
+  return <div className="flex h-[240px] items-center justify-center bg-white text-xs text-slate-400">{children}</div>;
 }
