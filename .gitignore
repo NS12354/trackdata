@@ -41,3 +41,7 @@ backend/.serve_ngrok_domain
 # --- OS / editor ---
 .DS_Store
 *.swp
+
+# Redis snapshot artifact
+backend/dump.rdb
+dump.rdb
