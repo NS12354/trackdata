@@ -42,6 +42,8 @@ class EASTTextDetector:
         self.score_thr = settings.text_score_threshold
         self.nms_thr = settings.text_nms_threshold
         self.work = _round32(settings.text_detection_size)
+        self.min_frac = settings.text_min_box_frac
+        self.max_frac = settings.text_max_box_frac
 
     def detect(self, frame: np.ndarray) -> List[Box]:
         H, W = frame.shape[:2]
@@ -65,6 +67,11 @@ class EASTTextDetector:
             for i in np.array(idxs).flatten():
                 x1, y1, x2, y2 = rects[i]
                 out.append((x1 * rW, y1 * rH, x2 * rW, y2 * rH))  # scale back to full res
+        # Size filter: drop texture-noise (too small) and background (too large).
+        mn = min(H, W) * self.min_frac
+        mx = min(H, W) * self.max_frac
+        out = [b for b in out if mn <= max(b[2] - b[0], b[3] - b[1]) <= mx
+               and (b[2] - b[0]) > 1 and (b[3] - b[1]) > 1]
         return out
 
     def _decode(self, scores: np.ndarray, geometry: np.ndarray):

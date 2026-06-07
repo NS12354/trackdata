@@ -358,17 +358,10 @@ export default function Pose3D({
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      <Panel3D title="3D body + hands"
-        controls={camControls(bodyLive, bodyLock, setBodyLock, "pose_bodycam")}>
-        <Plot
-          data={bodyTraces(H, effLeft, effRight, headEuler) as any}
-          layout={{ ...LAYOUT_BASE, scene: { ...SCENE, camera: bodyLock ?? BODY_CAM, ...(bodyLock ? { dragmode: false } : {}) } } as any}
-          config={{ displayModeBar: false, responsive: true } as any}
-          style={{ width: "100%", height: "300px" }}
-          onRelayout={(e: any) => onRelay(e, setBodyLive)}
-          useResizeHandler
-        />
-      </Panel3D>
+      {/* Body panel hidden: the body is INFERRED (a standing template), so it
+          misrepresents real posture (e.g. shows standing while seated). Misleading
+          for buyers. Code kept (bodyTraces / BODY_CAM / bodyLock). Lead with the
+          MEASURED hands only. */}
     </div>
   );
 }

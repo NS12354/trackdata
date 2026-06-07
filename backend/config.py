@@ -132,23 +132,36 @@ class Settings(BaseSettings):
     yunet_model_path: str = str(BACKEND_DIR / "ml_models" / "face_detection_yunet_2023mar.onnx")
 
     # --- Text / PII blurring (EAST scene-text detection) ---
-    # Blur text regions so unit/apartment numbers, mail & package labels,
-    # whiteboards, license plates, and on-screen text are removed — critical for
-    # footage shot inside homes/buildings. We locate text (don't read it) and bias
-    # toward recall: blurring a bit extra is safe, leaking PII is not.
-    enable_text_blur: bool = True
+    # Text/PII blur. OFF by default: EAST over-blurs cluttered indoor scenes with
+    # HIGH confidence (electronics/shelves read as "text"), and threshold/size
+    # tuning doesn't remove those false positives (measured: 0% reduction). Proper
+    # text/PII blur for residential interiors needs a precise modern detector
+    # (PaddleOCR DBNet / CRAFT) — a real integration. Until then, faces-only blur
+    # (which has ~0% false positives) is the reliable default. Set True to re-enable.
+    enable_text_blur: bool = False
     east_model_path: str = str(BACKEND_DIR / "ml_models" / "frozen_east_text_detection.pb")
     # EAST working resolution (multiple of 32). Higher = catches smaller text
     # (door numbers, mail) but slower. 512 is a good balance for HD frames.
     text_detection_size: int = 512
-    text_score_threshold: float = 0.5
+    # Confidence bar for a region to count as text. Raised to 0.9: cluttered indoor
+    # scenes (desks, shelves, textured objects) trip EAST at low thresholds, blurring
+    # random things. High precision matters more than catching every faint label.
+    text_score_threshold: float = 0.9
     text_nms_threshold: float = 0.4
+    # Reject boxes outside this size range (fraction of frame's min dimension for the
+    # box's larger side). Tiny boxes are texture noise; huge boxes are background, not
+    # PII. Real text labels/screens fall in between.
+    text_min_box_frac: float = 0.03
+    text_max_box_frac: float = 0.55
+    # Require a text box to appear in this many consecutive detection frames before
+    # blurring — kills transient one-frame false positives (real text persists).
+    text_persist_frames: int = 2
     # Text is near-static frame-to-frame, so detect every Nth frame and carry the
     # boxes forward across the skipped frames (cheap, no leak).
     text_detection_stride: int = 5
-    # Pad each text box outward this fraction before blurring (cover character
-    # edges / adjacent text). Generous on purpose.
-    text_box_padding: float = 0.25
+    # Pad each text box outward this fraction before blurring. Modest — over-padding
+    # smears blur onto non-PII neighbours.
+    text_box_padding: float = 0.1
 
     # --- Hand pose (Phase 2, MediaPipe Hands) ---
     # Frames per second to sample for hand-keypoint extraction. 10fps keeps CPU
