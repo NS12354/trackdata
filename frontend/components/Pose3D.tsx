@@ -213,10 +213,9 @@ const SCENE = {
   xaxis: { ...AXIS, title: "X" },
   yaxis: { ...AXIS, title: "Y" },
   zaxis: { ...AXIS, title: "Z" },
-  // Manual/equal aspect so the shallow depth axis isn't compressed flat — each
-  // axis gets equal visual space, giving the hand real 3D depth.
-  aspectmode: "manual" as const,
-  aspectratio: { x: 1, y: 1, z: 1 },
+  // "data" keeps true proportions (manual/equal aspect over-stretched the hand's
+  // shallow depth and looked distorted). Use the camera angle to show depth.
+  aspectmode: "data" as const,
 };
 const LAYOUT_BASE = {
   paper_bgcolor: "#ffffff",
