@@ -33,6 +33,7 @@ import cv2
 import numpy as np
 
 from config import settings
+from .cancel import JobCancelled
 from .video_meta import VideoMeta, apply_rotation
 from .orientation import resolve_video_meta
 from .face_detector import get_face_detector
@@ -369,7 +370,9 @@ def anonymize_video(
         if progress_cb is not None:
             try:
                 progress_cb(max(0.0, min(1.0, frac)))
-            except Exception:  # noqa: BLE001 — progress must never break the job
+            except JobCancelled:
+                raise  # cooperative cancel: propagate so the encode loop stops
+            except Exception:  # noqa: BLE001 — other progress errors never break the job
                 pass
 
     # Content-aware orientation: corrects sideways/upside-down clips whose rotation

@@ -19,6 +19,7 @@ from db import db_dependency
 from models import Video, VideoStatus
 from pipeline.jobs import (
     _anonymized_key, _hand_pose_key, _segments_key, _head_pose_key, _body_pose_key,
+    delete_video_artifacts,
 )
 from pipeline.hand_pose import load_hand_pose, read_hand_pose_metadata
 from pipeline.segmentation import load_segments
@@ -132,6 +133,37 @@ def get_video(video_id: str, db: Session = Depends(db_dependency)):
     if video is None:
         raise HTTPException(status_code=404, detail="video not found")
     return video.to_dict()
+
+
+@router.delete("/{video_id}", status_code=200)
+def delete_video(video_id: str, db: Session = Depends(db_dependency)):
+    """Cancel and/or delete a video at any stage.
+
+    Deleting the DB row is the cancellation signal: any in-flight pipeline job
+    notices on its next checkpoint and stops cooperatively (the worker is solo-
+    pool, so we can't terminate a single task). We then remove all on-disk
+    artifacts. Idempotent — deleting an already-gone video returns ok.
+    """
+    video = db.get(Video, video_id)
+    if video is None:
+        # Already gone (or never existed) — treat as success so the UI can
+        # delete optimistically without racing the worker.
+        return {"id": video_id, "deleted": True, "already_gone": True}
+
+    was_processing = video.status in (VideoStatus.uploaded, VideoStatus.processing)
+
+    # 1) Drop the row first — this is what the running job polls to self-cancel.
+    db.delete(video)
+    db.commit()
+
+    # 2) Remove all files (best-effort; safe even if a job is mid-write).
+    try:
+        delete_video_artifacts(video_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("artifact cleanup incomplete for %s: %s", video_id, exc)
+
+    log.info("deleted video %s (was_processing=%s)", video_id, was_processing)
+    return {"id": video_id, "deleted": True, "was_processing": was_processing}
 
 
 def _ranged_file_response(path: Path, request: Request, media_type: str) -> Response:

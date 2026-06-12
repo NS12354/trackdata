@@ -2,6 +2,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { fmtDate, fmtDuration, fmtPct } from "@/lib/format";
 import { Panel, StatusBadge } from "@/components/ui";
+import DeleteVideoButton from "@/components/DeleteVideoButton";
 import type { Video } from "@/lib/types";
 
 export const metadata = { title: "Videos — Revisent" };
@@ -50,6 +51,7 @@ export default async function VideosPage() {
                 <th className="px-4 py-2 font-medium">Blur</th>
                 <th className="px-4 py-2 font-medium">Pipeline</th>
                 <th className="px-4 py-2 font-medium">Status</th>
+                <th className="px-4 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -69,6 +71,9 @@ export default async function VideosPage() {
                   </td>
                   <td className="px-4 py-2">
                     <StatusBadge status={v.status} />
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <DeleteVideoButton id={v.id} status={v.status} filename={v.original_filename} />
                   </td>
                 </tr>
               ))}

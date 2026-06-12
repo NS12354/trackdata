@@ -39,7 +39,19 @@ export const api = {
   getHeadPose: (id: string) => get<HeadPoseResponse>(`/api/videos/${id}/head-pose`),
   getEvents: (id: string) => get<VideoSummary>(`/api/videos/${id}/events`),
   getOverview: () => get<Overview>("/api/metrics/overview"),
+  deleteVideo: (id: string) => del(`/api/videos/${id}`),
 };
+
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok && res.status !== 404) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`DELETE ${path} -> ${res.status} ${detail}`);
+  }
+}
 
 export interface ChatReply {
   answer: string;

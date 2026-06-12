@@ -20,6 +20,7 @@ from models import Video, VideoStatus
 from pipeline.jobs import (
     run_anonymization, run_hand_pose, run_segmentation, run_head_pose, run_body_pose,
 )
+from pipeline.cancel import JobCancelled
 from pipeline.events import extract_events
 
 log = logging.getLogger("revisent.tasks")
@@ -56,6 +57,9 @@ def anonymize_video_task(self, video_id: str, upload_key: str) -> str:
     """
     try:
         run_anonymization(video_id, upload_key)
+    except JobCancelled:
+        log.info("anonymization cancelled for %s (video deleted); stopping chain", video_id)
+        return video_id  # no retry, no chaining
     except Exception as exc:
         if self.request.retries >= self.max_retries:
             log.error("anonymization permanently failed for %s: %s", video_id, exc)
@@ -80,6 +84,9 @@ def extract_hand_pose_task(self, video_id: str) -> str:
     """Extract hand keypoints, then chain segmentation. Non-fatal on failure."""
     try:
         run_hand_pose(video_id)
+    except JobCancelled:
+        log.info("hand pose cancelled for %s (video deleted); stopping chain", video_id)
+        return video_id
     except Exception as exc:
         if self.request.retries >= self.max_retries:
             log.error("hand pose permanently failed for %s: %s", video_id, exc)
@@ -115,6 +122,9 @@ def segment_video_task(self, video_id: str) -> str:
     advances to 'processed'."""
     try:
         run_segmentation(video_id)
+    except JobCancelled:
+        log.info("segmentation cancelled for %s (video deleted); stopping chain", video_id)
+        return video_id
     except Exception as exc:
         if self.request.retries >= self.max_retries:
             log.error("segmentation permanently failed for %s: %s", video_id, exc)

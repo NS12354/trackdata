@@ -17,6 +17,7 @@ from db import session_scope
 from models import Video, VideoStatus
 from storage import get_storage
 from .anonymize import anonymize_video
+from .cancel import JobCancelled
 from .hand_pose import extract_hand_pose
 from .segmentation import segment_video
 
@@ -46,6 +47,41 @@ def _head_pose_key(video_id: str) -> str:
 
 def _body_pose_key(video_id: str) -> str:
     return f"processed/{video_id}/body_pose.json"
+
+
+def _ensure_not_cancelled(video_id: str) -> None:
+    """Raise JobCancelled if the video row no longer exists (user deleted it)."""
+    with session_scope() as s:
+        if s.get(Video, video_id) is None:
+            raise JobCancelled()
+
+
+def delete_video_artifacts(video_id: str) -> None:
+    """Remove every on-disk file produced for a video (uploads, anonymized,
+    pose/segments/events under processed/). Best-effort and idempotent — safe to
+    call even while a job is mid-write; the job cancels cooperatively."""
+    import shutil
+
+    storage = get_storage()
+    # Raw upload(s): extension varies (.mp4/.mov), so glob by id.
+    try:
+        uploads_dir = storage.local_path("uploads/_").parent
+        for p in uploads_dir.glob(f"{video_id}.*"):
+            p.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        log.debug("upload cleanup skipped for %s", video_id)
+    # Anonymized video.
+    try:
+        storage.delete(_anonymized_key(video_id))
+    except Exception:  # noqa: BLE001
+        pass
+    # Per-video processed directory (hand/head/body pose, segments, events).
+    try:
+        proc_dir = storage.local_path(f"processed/{video_id}/_").parent
+        if proc_dir.exists():
+            shutil.rmtree(proc_dir, ignore_errors=True)
+    except Exception:  # noqa: BLE001
+        log.debug("processed cleanup skipped for %s", video_id)
 
 
 def run_body_pose(video_id: str) -> None:
@@ -130,16 +166,19 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
         _last = {"pct": -1, "t": 0.0}
 
         def _on_progress(frac: float) -> None:
-            pct = int(frac * 100)
-            now = time.monotonic()
-            if pct <= _last["pct"] or (now - _last["t"] < 0.4 and pct < 100):
-                return
-            _last["pct"], _last["t"] = pct, now
+            # Every tick doubles as a cancellation checkpoint: if the row was
+            # deleted (user cancelled), abort the encode cooperatively.
             with session_scope() as ps:
                 v = ps.get(Video, video_id)
-                if v is not None:
-                    v.processing_progress = round(frac, 3)
-                    v.processing_stage = "anonymizing"
+                if v is None:
+                    raise JobCancelled()
+                pct = int(frac * 100)
+                now = time.monotonic()
+                if pct <= _last["pct"] or (now - _last["t"] < 0.4 and pct < 100):
+                    return
+                _last["pct"], _last["t"] = pct, now
+                v.processing_progress = round(frac, 3)
+                v.processing_stage = "anonymizing"
 
         log.info("anonymizing %s -> %s", in_path, out_path)
         result = anonymize_video(in_path, out_path, progress_cb=_on_progress)
@@ -168,6 +207,14 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
             storage.delete(upload_key)
             log.info("deleted raw upload %s (retain_raw_uploads=False)", upload_key)
 
+    except JobCancelled:
+        # Video deleted mid-anonymization: drop the partial output and stop quietly.
+        log.info("anonymization cancelled for %s (video deleted)", video_id)
+        try:
+            storage.delete(_anonymized_key(video_id))
+        except Exception:  # noqa: BLE001
+            pass
+        raise
     except Exception as exc:  # noqa: BLE001
         # Raise so the task layer can retry (transient) or mark-failed (terminal).
         log.error("anonymization failed for %s: %s", video_id, exc)
@@ -181,6 +228,7 @@ def run_hand_pose(video_id: str) -> None:
     Raises on failure so the task layer can retry. Hand-pose failure is non-fatal
     to the video (it stays anonymized/usable); the task records the error.
     """
+    _ensure_not_cancelled(video_id)
     storage = get_storage()
     anon_key = _anonymized_key(video_id)
     if not storage.exists(anon_key):
@@ -218,6 +266,7 @@ def run_segmentation(video_id: str) -> None:
     egress). Raises on failure so the task layer can retry. Records cost (0.0 for
     the local model) and flips the video to ``processed``.
     """
+    _ensure_not_cancelled(video_id)
     storage = get_storage()
     anon_key = _anonymized_key(video_id)
     if not storage.exists(anon_key):

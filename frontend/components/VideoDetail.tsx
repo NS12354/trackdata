@@ -101,6 +101,24 @@ export default function VideoDetail({
     v.play().catch(() => {});
   };
 
+  const [deleting, setDeleting] = useState(false);
+  const isProcessing = vid.status === "uploaded" || vid.status === "processing";
+  const onDelete = async () => {
+    const msg = isProcessing
+      ? "Cancel processing and delete this video? The upload and all derived data will be removed."
+      : "Delete this video and all its data? This cannot be undone.";
+    if (!window.confirm(msg)) return;
+    setDeleting(true);
+    try {
+      await api.deleteVideo(video.id);
+      router.push("/videos");
+      router.refresh();
+    } catch (e) {
+      setDeleting(false);
+      window.alert("Delete failed: " + (e as Error).message);
+    }
+  };
+
   const hasHands = !!handpose && handpose.frames.length > 0;
   const ready = vid.status === "processed" || vid.status === "anonymized";
   const operatorHeight = video.operator_height_cm;
@@ -130,6 +148,14 @@ export default function VideoDetail({
               ↓ Export bundle
             </a>
           )}
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="rounded border border-danger/40 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20 disabled:opacity-50"
+          >
+            {deleting ? "Deleting…" : isProcessing ? "✕ Cancel processing" : "🗑 Delete"}
+          </button>
         </div>
       </div>
 
