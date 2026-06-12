@@ -81,12 +81,21 @@ export default function UploadForm() {
 
         {pct !== null && (
           <div>
-            <div className="h-2 w-full overflow-hidden rounded bg-panel2">
-              <div className="h-full rounded bg-accent transition-all" style={{ width: `${pct}%` }} />
+            <div className="mb-1 flex items-baseline justify-between">
+              <span className="text-sm font-medium text-text">
+                {pct < 100 ? "Uploading…" : "Uploaded — starting processing…"}
+              </span>
+              <span className="font-mono text-lg font-semibold tabular-nums text-accent">{pct}%</span>
             </div>
-            <p className="mt-1 text-xs text-muted">
-              {pct < 100 ? `Uploading… ${pct}%` : "Uploaded — starting processing…"}
-            </p>
+            <div className="h-2.5 w-full overflow-hidden rounded bg-panel2">
+              <div className="h-full rounded bg-accent transition-all duration-150" style={{ width: `${pct}%` }} />
+            </div>
+            {file && pct < 100 && (
+              <p className="mt-1 text-xs text-muted tabular-nums">
+                {((file.size * pct) / 100 / 1024 / 1024).toFixed(1)} MB of{" "}
+                {(file.size / 1024 / 1024).toFixed(1)} MB
+              </p>
+            )}
           </div>
         )}
 
@@ -101,7 +110,7 @@ export default function UploadForm() {
           disabled={!file || busy}
           className="rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          {busy ? "Uploading…" : "Upload & process"}
+          {busy ? (pct !== null && pct < 100 ? `Uploading… ${pct}%` : "Processing…") : "Upload & process"}
         </button>
         <p className="text-xs text-muted">
           After upload, the clip is anonymized → hand-pose → segmented → events
