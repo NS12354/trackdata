@@ -27,7 +27,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -350,11 +350,27 @@ def _open_ffmpeg_writer(out_path: Path, meta: VideoMeta):
 # --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #
-def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
-    """Blur faces in ``input_path`` (temporally stable), writing ``output_path``."""
+def anonymize_video(
+    input_path: Path,
+    output_path: Path,
+    progress_cb: Optional[Callable[[float], None]] = None,
+) -> AnonymizationResult:
+    """Blur faces in ``input_path`` (temporally stable), writing ``output_path``.
+
+    ``progress_cb`` (optional) is called with a 0.0–1.0 fraction as the two passes
+    proceed: detection occupies the first ~45%, encoding the rest. Callbacks are
+    throttled here so the caller can persist progress cheaply.
+    """
     input_path = Path(input_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _emit(frac: float) -> None:
+        if progress_cb is not None:
+            try:
+                progress_cb(max(0.0, min(1.0, frac)))
+            except Exception:  # noqa: BLE001 — progress must never break the job
+                pass
 
     # Content-aware orientation: corrects sideways/upside-down clips whose rotation
     # metadata is missing or wrong, falling back to metadata when no faces.
@@ -387,10 +403,13 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     text_every = max(1, round(settings.text_detection_stride / stride))  # decoded frames
     current_text: List[Box] = []
     decoded = 0
+    est_total = max(1, meta.frame_count)  # for pass-1 progress estimate
     reader = _make_reader(input_path, meta)  # hardware decode when available
     try:
         idx = 0
         while True:
+            if idx % 30 == 0:
+                _emit(0.45 * min(1.0, idx / est_total))  # detection pass = first 45%
             if idx % stride == 0:
                 frame = reader.read()  # upright BGR
                 if frame is None:
@@ -418,6 +437,7 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
             text_detector.close()
 
     frames_total = len(per_frame)
+    _emit(0.5)  # detection done; tracking + encode remain
 
     # ---- Confirm tracks + fill gaps / build per-frame blur boxes ----
     filled, stats = _build_filled_boxes(
@@ -441,6 +461,8 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
     try:
         idx = 0
         while True:
+            if idx % 30 == 0:
+                _emit(0.5 + 0.5 * (idx / frames_total if frames_total else 1.0))  # encode = last 50%
             frame = reader.read()
             if frame is None:
                 break
@@ -466,6 +488,7 @@ def anonymize_video(input_path: Path, output_path: Path) -> AnonymizationResult:
         if cv_writer is not None:
             cv_writer.release()
 
+    _emit(1.0)
     coverage = (frames_blurred / frames_total) if frames_total else 0.0
     raw_cov = (frames_with_faces / frames_total) if frames_total else 0.0
     mean_faces = (total_detections / frames_total) if frames_total else 0.0

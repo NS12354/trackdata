@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -116,14 +117,32 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
                 log.error("anonymization: video %s not found", video_id)
                 return
             video.status = VideoStatus.processing
+            video.processing_stage = "anonymizing"
+            video.processing_progress = 0.0
             video.error_message = None
 
         in_path = storage.local_path(upload_key)
         out_key = _anonymized_key(video_id)
         out_path = storage.local_path(out_key)
 
+        # Persist anonymization progress for the UI, throttled to ≥1% change and
+        # ≥0.4s apart so we never hammer the DB from the per-frame callback.
+        _last = {"pct": -1, "t": 0.0}
+
+        def _on_progress(frac: float) -> None:
+            pct = int(frac * 100)
+            now = time.monotonic()
+            if pct <= _last["pct"] or (now - _last["t"] < 0.4 and pct < 100):
+                return
+            _last["pct"], _last["t"] = pct, now
+            with session_scope() as ps:
+                v = ps.get(Video, video_id)
+                if v is not None:
+                    v.processing_progress = round(frac, 3)
+                    v.processing_stage = "anonymizing"
+
         log.info("anonymizing %s -> %s", in_path, out_path)
-        result = anonymize_video(in_path, out_path)
+        result = anonymize_video(in_path, out_path, progress_cb=_on_progress)
         log.info(
             "anonymized %s: coverage=%.1f%% faces=%d frames=%d codec=%s",
             video_id, result.coverage * 100, result.total_face_detections,
@@ -133,6 +152,8 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
         with session_scope() as s:
             video = s.get(Video, video_id)
             video.status = VideoStatus.anonymized
+            video.processing_progress = 1.0
+            video.processing_stage = "anonymized"
             video.anonymized_at = datetime.now(timezone.utc)
             video.anonymization_coverage = result.coverage
             video.anonymization_method = result.method
@@ -169,6 +190,11 @@ def run_hand_pose(video_id: str) -> None:
     out_key = _hand_pose_key(video_id)
     out_path = storage.local_path(out_key)
 
+    with session_scope() as s:
+        v = s.get(Video, video_id)
+        if v is not None:
+            v.processing_stage = "hand pose"
+
     log.info("extracting hand pose for %s", video_id)
     result = extract_hand_pose(in_path, out_path, video_id)
     log.info(
@@ -200,6 +226,11 @@ def run_segmentation(video_id: str) -> None:
     in_path = storage.local_path(anon_key)
     out_path = storage.local_path(_segments_key(video_id))
 
+    with session_scope() as s:
+        v = s.get(Video, video_id)
+        if v is not None:
+            v.processing_stage = "segmenting"
+
     log.info("segmenting %s", video_id)
     result = segment_video(in_path, video_id)
     out_path.write_text(json.dumps(result.to_json(), indent=2))
@@ -215,6 +246,8 @@ def run_segmentation(video_id: str) -> None:
             video.segmented_at = datetime.now(timezone.utc)
             video.segmentation_cost_usd = result.cost_usd
             video.status = VideoStatus.processed
+            video.processing_stage = "done"
+            video.processing_progress = 1.0
             if scene:
                 video.scene = scene
             video.error_message = None

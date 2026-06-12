@@ -15,6 +15,8 @@ export interface Video {
   operator_height_cm: number | null;
   scene: string | null;
   status: VideoStatus;
+  processing_progress: number | null; // 0.0–1.0 within the current stage
+  processing_stage: string | null; // "anonymizing" | "hand pose" | "segmenting" | ...
   file_size: number | null;
   duration_seconds: number | null;
   anonymized_at: string | null;

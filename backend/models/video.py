@@ -50,6 +50,11 @@ class Video(Base):
         nullable=False,
     )
 
+    # Live processing progress for the UI: 0.0–1.0 within the current stage, and a
+    # short human label for that stage ("anonymizing", "hand pose", "segmenting").
+    processing_progress: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
+    processing_stage: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
@@ -84,6 +89,8 @@ class Video(Base):
             "operator_height_cm": self.operator_height_cm,
             "scene": self.scene,
             "status": self.status.value if isinstance(self.status, VideoStatus) else self.status,
+            "processing_progress": self.processing_progress,
+            "processing_stage": self.processing_stage,
             "file_size": self.file_size,
             "duration_seconds": self.duration_seconds,
             "anonymized_at": self.anonymized_at.isoformat() if self.anonymized_at else None,

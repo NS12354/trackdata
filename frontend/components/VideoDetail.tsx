@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 import { Panel, StatusBadge } from "@/components/ui";
 
 // NOTE: 3D rig panel removed for now (kept in repo: HumanModel3D.tsx procedural,
@@ -40,6 +42,33 @@ export default function VideoDetail({
   summary: VideoSummary | null;
   videoUrl: string;
 }) {
+  const router = useRouter();
+  // Live copy of the video row: polled while it's still processing so the
+  // anonymization percentage animates without a manual refresh.
+  const [vid, setVid] = useState(video);
+  useEffect(() => setVid(video), [video]);
+  useEffect(() => {
+    if (vid.status !== "uploaded" && vid.status !== "processing") return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const next = await api.getVideo(video.id);
+        if (!alive) return;
+        setVid(next);
+        // Once it leaves the processing states, reload to fetch the now-ready
+        // anonymized video + pose/segments (server-rendered on the page).
+        if (next.status !== "uploaded" && next.status !== "processing") router.refresh();
+      } catch {
+        /* transient — keep polling */
+      }
+    };
+    const h = setInterval(tick, 1500);
+    return () => {
+      alive = false;
+      clearInterval(h);
+    };
+  }, [vid.status, video.id, router]);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(video.duration_seconds || 0);
@@ -73,7 +102,7 @@ export default function VideoDetail({
   };
 
   const hasHands = !!handpose && handpose.frames.length > 0;
-  const ready = video.status === "processed" || video.status === "anonymized";
+  const ready = vid.status === "processed" || vid.status === "anonymized";
   const operatorHeight = video.operator_height_cm;
   const scene = video.scene;
   const activeSeg =
@@ -88,7 +117,7 @@ export default function VideoDetail({
           ← Videos
         </Link>
         <h1 className="text-lg font-semibold">{video.original_filename}</h1>
-        <StatusBadge status={video.status} />
+        <StatusBadge status={vid.status} />
         <div className="ml-auto flex items-center gap-3 text-xs text-muted">
           {video.property_tag && <span>{video.property_tag}</span>}
           <span>{fmtDate(video.uploaded_at)}</span>
@@ -144,8 +173,53 @@ export default function VideoDetail({
                   </div>
                 </div>
               ) : (
-                <div className="flex h-64 w-[480px] max-w-full items-center justify-center text-sm text-muted">
-                  Anonymized video not ready yet.
+                <div className="flex h-64 w-[480px] max-w-full flex-col items-center justify-center gap-3 px-8 text-sm text-muted">
+                  {vid.status === "failed" ? (
+                    <span className="text-danger">Processing failed.</span>
+                  ) : (
+                    (() => {
+                      const stage = vid.processing_stage || "queued";
+                      const isAnon = stage === "anonymizing";
+                      // Only the anonymization stage reports a true fraction; later
+                      // stages show an indeterminate (animated) bar.
+                      const pct = isAnon
+                        ? Math.round((vid.processing_progress || 0) * 100)
+                        : null;
+                      const label =
+                        stage === "anonymizing"
+                          ? "Anonymizing (blurring faces)"
+                          : stage === "hand pose"
+                          ? "Extracting hand pose"
+                          : stage === "segmenting"
+                          ? "Segmenting tasks"
+                          : "Queued for processing";
+                      return (
+                        <div className="w-full max-w-[360px]">
+                          <div className="mb-1.5 flex items-baseline justify-between">
+                            <span className="font-medium text-text">{label}…</span>
+                            {pct !== null && (
+                              <span className="font-mono text-lg font-semibold tabular-nums text-accent">
+                                {pct}%
+                              </span>
+                            )}
+                          </div>
+                          <div className="h-2.5 w-full overflow-hidden rounded bg-panel2">
+                            {pct !== null ? (
+                              <div
+                                className="h-full rounded bg-accent transition-all duration-300"
+                                style={{ width: `${pct}%` }}
+                              />
+                            ) : (
+                              <div className="h-full w-1/3 animate-pulse rounded bg-accent" />
+                            )}
+                          </div>
+                          <p className="mt-2 text-xs text-muted">
+                            This runs automatically — anonymize → hand pose → segment.
+                          </p>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
               )}
               {/* Active-skill overlay card */}

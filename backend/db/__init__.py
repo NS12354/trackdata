@@ -59,6 +59,19 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
 
+    # Lightweight dev migration: create_all won't add columns to a pre-existing
+    # table, so add any newly-introduced columns to the videos table if missing.
+    if settings.database_url.startswith("sqlite"):
+        from sqlalchemy import inspect, text
+        existing = {c["name"] for c in inspect(engine).get_columns("videos")}
+        for name, ddl in (
+            ("processing_progress", "FLOAT DEFAULT 0.0"),
+            ("processing_stage", "VARCHAR(32)"),
+        ):
+            if name not in existing:
+                with engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE videos ADD COLUMN {name} {ddl}"))
+
 
 def get_session() -> Session:
     return SessionLocal()
