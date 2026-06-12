@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Panel, StatusBadge } from "@/components/ui";
 
@@ -44,6 +44,26 @@ export default function VideoDetail({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(video.duration_seconds || 0);
   const [overlay, setOverlay] = useState(true);
+  const [rot, setRot] = useState(0); // viewer rotation: 0 / 90 / 180 / 270
+
+  // Display size of the video (computed from intrinsic dims + the 60vh cap), so
+  // we can resize the frame box when rotated 90°/270° and keep it from clipping.
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const measure = () => {
+    const v = videoRef.current;
+    if (!v || !v.videoWidth || !v.videoHeight) return;
+    const h = Math.min(window.innerHeight * 0.6, v.videoHeight);
+    setBox({ w: h * (v.videoWidth / v.videoHeight), h });
+  };
+  useEffect(() => {
+    const onResize = () => measure();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const rotated = rot % 180 !== 0;
+  const outerW = rotated ? box.h : box.w;
+  const outerH = rotated ? box.w : box.h;
 
   const seek = (t: number) => {
     const v = videoRef.current;
@@ -94,24 +114,39 @@ export default function VideoDetail({
       <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
         <div className="space-y-3">
           <Panel className="overflow-hidden">
-            <div className="relative mx-auto w-fit bg-black">
+            <div
+              className="relative mx-auto bg-black"
+              style={box.w ? { width: outerW, height: outerH } : undefined}
+            >
               {ready ? (
-                <video
-                  ref={videoRef}
-                  src={videoUrl}
-                  controls
-                  playsInline
-                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                  onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-                  className="block max-h-[60vh] w-auto"
-                />
+                // The video + pose overlay rotate together as one unit so they stay aligned.
+                <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                  <div
+                    className="relative shrink-0 transition-transform duration-200"
+                    style={{ transform: `rotate(${rot}deg)` }}
+                  >
+                    <video
+                      ref={videoRef}
+                      src={videoUrl}
+                      controls
+                      playsInline
+                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                      onLoadedMetadata={(e) => {
+                        setDuration(e.currentTarget.duration);
+                        measure();
+                      }}
+                      onLoadedData={measure}
+                      className="block max-h-[60vh] w-auto"
+                    />
+                    {hasHands && (
+                      <HandPoseOverlay videoRef={videoRef} frames={handpose!.frames} enabled={overlay} />
+                    )}
+                  </div>
+                </div>
               ) : (
                 <div className="flex h-64 w-[480px] max-w-full items-center justify-center text-sm text-muted">
                   Anonymized video not ready yet.
                 </div>
-              )}
-              {hasHands && (
-                <HandPoseOverlay videoRef={videoRef} frames={handpose!.frames} enabled={overlay} />
               )}
               {/* Active-skill overlay card */}
               {ready && activeSeg && (
@@ -158,6 +193,36 @@ export default function VideoDetail({
                 <input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} />
                 Hand-pose overlay
               </label>
+            )}
+            {ready && (
+              <div className="flex items-center gap-1">
+                <span className="mr-1">Rotate</span>
+                <button
+                  type="button"
+                  title="Rotate left 90°"
+                  onClick={() => setRot((r) => (r + 270) % 360)}
+                  className="rounded border border-border bg-panel2 px-2 py-1 text-text hover:border-accent hover:text-accent"
+                >
+                  ⟲
+                </button>
+                <button
+                  type="button"
+                  title="Rotate right 90°"
+                  onClick={() => setRot((r) => (r + 90) % 360)}
+                  className="rounded border border-border bg-panel2 px-2 py-1 text-text hover:border-accent hover:text-accent"
+                >
+                  ⟳
+                </button>
+                {rot !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setRot(0)}
+                    className="rounded border border-border bg-panel2 px-2 py-1 text-text hover:border-accent hover:text-accent"
+                  >
+                    Reset · {rot}°
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
