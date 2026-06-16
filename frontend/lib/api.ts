@@ -91,43 +91,15 @@ export function getProcessingSettings(): Promise<ProcessingSettings> {
   return get<ProcessingSettings>("/api/settings/processing");
 }
 
-export interface UndistortSettings {
-  enabled: boolean;
-  strength: number;
-  zoom: number;
-  fov_deg: number;
+export interface CameraProfile {
+  camera_model: string;
+  lens_model: string;
   calibrated: boolean;
-  mode: "estimate" | "calibrated";
+  reprojection_error_pixels: number | null;
 }
 
-export function getUndistortSettings(): Promise<UndistortSettings> {
-  return get<UndistortSettings>("/api/settings/undistort");
-}
-
-export async function putUndistortSettings(
-  p: Partial<Pick<UndistortSettings, "enabled" | "strength" | "zoom" | "fov_deg">>
-): Promise<UndistortSettings> {
-  const res = await fetch(`${BASE}/api/settings/undistort`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(p),
-  });
-  if (!res.ok) throw new Error(`${res.status}: ${(await res.text().catch(() => "")) || "save failed"}`);
-  return res.json() as Promise<UndistortSettings>;
-}
-
-/** De-warp preview image URL for the cached sample frame. raw=true => original. */
-export function undistortPreviewUrl(
-  id: string,
-  opts: { strength?: number; zoom?: number; fov?: number; raw?: boolean } = {}
-): string {
-  const p = new URLSearchParams();
-  if (opts.raw) p.set("raw", "1");
-  if (opts.strength != null) p.set("strength", String(opts.strength));
-  if (opts.zoom != null) p.set("zoom", String(opts.zoom));
-  if (opts.fov != null) p.set("fov", String(opts.fov));
-  if (API_KEY) p.set("api_key", API_KEY);
-  return `${BASE}/api/videos/${id}/undistort-preview?${p.toString()}`;
+export function getCameras(): Promise<{ profiles: CameraProfile[] }> {
+  return get<{ profiles: CameraProfile[] }>("/api/settings/cameras");
 }
 
 export interface UploadFields {
@@ -135,6 +107,7 @@ export interface UploadFields {
   property_tag?: string;
   worker_id_anonymized?: string;
   operator_height_cm?: string;
+  camera_model?: string;
 }
 
 /**
@@ -156,6 +129,7 @@ export function uploadVideo(
       fd.append("worker_id_anonymized", fields.worker_id_anonymized);
     if (fields.operator_height_cm)
       fd.append("operator_height_cm", fields.operator_height_cm);
+    if (fields.camera_model) fd.append("camera_model", fields.camera_model);
 
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${BASE}/api/videos`);

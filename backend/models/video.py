@@ -44,6 +44,10 @@ class Video(Base):
     # Scene / setting label, derived from the activity commentary.
     scene: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
+    # Camera model the clip was shot on — selects the calibration profile used to
+    # undistort it (default = identity no-op). Set on upload.
+    camera_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default="default")
+
     status: Mapped[VideoStatus] = mapped_column(
         Enum(VideoStatus, native_enum=False, length=16),
         default=VideoStatus.uploaded,
@@ -88,6 +92,7 @@ class Video(Base):
             "property_tag": self.property_tag,
             "operator_height_cm": self.operator_height_cm,
             "scene": self.scene,
+            "camera_model": self.camera_model,
             "status": self.status.value if isinstance(self.status, VideoStatus) else self.status,
             "processing_progress": self.processing_progress,
             "processing_stage": self.processing_stage,

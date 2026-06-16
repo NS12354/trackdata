@@ -120,12 +120,11 @@ class Settings(BaseSettings):
 
     # --- Lens distortion removal (de-fisheye -> rectilinear "normal" footage) ---
     # Applied during anonymization so the stored video AND all downstream pose run
-    # on rectilinear frames. Calibrated mode (camera_intrinsics.json) is exact;
-    # otherwise an estimate flattens barrel distortion by a tunable strength.
+    # on rectilinear frames. Correction is PROFILE-DRIVEN ONLY: each video's
+    # camera_model selects calibration_profiles/{model}.json (real intrinsics +
+    # distortion); unknown/uncalibrated cameras use default.json (identity no-op).
+    # Master switch — when False, no undistortion runs regardless of profile.
     enable_undistort: bool = True
-    undistort_strength: float = 0.35     # 0=off … 1=strong (estimate mode only)
-    undistort_zoom: float = 0.0          # 0=crop to no black border … 1=keep full frame
-    undistort_assumed_fov_deg: float = 120.0  # estimate-mode lens width guess
 
     # --- Face blur ---
     # Master switch for face anonymization. Off skips face detection + blur

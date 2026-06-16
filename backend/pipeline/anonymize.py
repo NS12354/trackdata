@@ -380,6 +380,7 @@ def anonymize_video(
     input_path: Path,
     output_path: Path,
     progress_cb: Optional[Callable[[float], None]] = None,
+    camera_model: Optional[str] = None,
 ) -> AnonymizationResult:
     """Blur faces in ``input_path`` (temporally stable), writing ``output_path``.
 
@@ -410,11 +411,13 @@ def anonymize_video(
 
     # Lens distortion removal: built once and shared across both passes so
     # detection and the written output run on identical rectilinear frames.
+    # Driven by the video's camera_model profile (default = identity no-op).
     from .undistort import make_undistorter
-    undistorter = make_undistorter(meta.width, meta.height)
+    undistorter = make_undistorter(meta.width, meta.height, camera_model)
     if undistorter is not None:
-        log.info("undistort %s: mode=%s strength=%.2f", input_path.name,
-                 undistorter.mode, undistorter.strength)
+        log.info("undistort %s: camera_model=%s lens=%s reproj=%.3gpx", input_path.name,
+                 undistorter.camera_model, undistorter.lens_model,
+                 undistorter.reproj_error or 0.0)
 
     # ---- Pass 1: detect faces (configured detector / union) ----
     # Detect every Nth frame; skipped frames advance via the cheaper grab() and

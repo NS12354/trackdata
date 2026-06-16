@@ -1,0 +1,13 @@
+{
+  "camera_model": "transcend_dpb30",
+  "calibration_date": null,
+  "lens_model": "standard",
+  "image_size": [1920, 1080],
+  "intrinsic_matrix": [[1920, 0, 960], [0, 1920, 540], [0, 0, 1]],
+  "distortion_coefficients": [0, 0, 0, 0, 0],
+  "reprojection_error_pixels": 0.0,
+  "num_calibration_frames": 0,
+  "pattern_size": [0, 0],
+  "square_size_mm": 0,
+  "notes": "PLACEHOLDER (identity — no correction yet). Replace with real calibration: record a checkerboard clip with the Transcend DrivePro Body 30 and run scripts/calibrate_camera.py --camera-model transcend_dpb30."
+}

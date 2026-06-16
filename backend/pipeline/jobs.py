@@ -56,40 +56,6 @@ def _ensure_not_cancelled(video_id: str) -> None:
             raise JobCancelled()
 
 
-def _preview_frame_key(video_id: str) -> str:
-    return f"processed/{video_id}/preview_raw.jpg"
-
-
-def save_preview_frame(in_path, out_path, max_w: int = 640) -> bool:
-    """Cache a RAW (distorted, upright) sample frame so the UI de-warp slider can
-    preview corrections without reprocessing. Best-effort."""
-    import cv2
-    from .orientation import resolve_video_meta
-    from .video_meta import apply_rotation
-
-    meta = resolve_video_meta(in_path)
-    cap = cv2.VideoCapture(str(in_path))
-    if not cap.isOpened():
-        return False
-    target = min(max(0, (meta.frame_count or 1) // 4), 60)  # ~a bit into the clip
-    cap.set(cv2.CAP_PROP_POS_FRAMES, target)
-    ok, f = cap.read()
-    if not ok:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ok, f = cap.read()
-    cap.release()
-    if not ok or f is None:
-        return False
-    f = apply_rotation(f, meta.rotation)
-    h, w = f.shape[:2]
-    if w > max_w:
-        f = cv2.resize(f, (max_w, int(round(h * max_w / w))))
-    out_path = __import__("pathlib").Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out_path), f, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return True
-
-
 def delete_video_artifacts(video_id: str) -> None:
     """Remove every on-disk file produced for a video (uploads, anonymized,
     pose/segments/events under processed/). Best-effort and idempotent — safe to
@@ -190,17 +156,11 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
             video.processing_stage = "anonymizing"
             video.processing_progress = 0.0
             video.error_message = None
+            camera_model = video.camera_model or "default"
 
         in_path = storage.local_path(upload_key)
         out_key = _anonymized_key(video_id)
         out_path = storage.local_path(out_key)
-
-        # Cache a raw sample frame for the de-warp preview slider (before the raw
-        # upload is deleted post-anonymization).
-        try:
-            save_preview_frame(in_path, storage.local_path(_preview_frame_key(video_id)))
-        except Exception as exc:  # noqa: BLE001
-            log.debug("preview frame capture failed for %s: %s", video_id, exc)
 
         # Persist anonymization progress for the UI, throttled to ≥1% change and
         # ≥0.4s apart so we never hammer the DB from the per-frame callback.
@@ -221,8 +181,9 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
                 v.processing_progress = round(frac, 3)
                 v.processing_stage = "anonymizing"
 
-        log.info("anonymizing %s -> %s", in_path, out_path)
-        result = anonymize_video(in_path, out_path, progress_cb=_on_progress)
+        log.info("anonymizing %s -> %s (camera_model=%s)", in_path, out_path, camera_model)
+        result = anonymize_video(in_path, out_path, progress_cb=_on_progress,
+                                 camera_model=camera_model)
         log.info(
             "anonymized %s: coverage=%.1f%% faces=%d frames=%d codec=%s",
             video_id, result.coverage * 100, result.total_face_detections,

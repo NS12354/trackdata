@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, getProcessingSettings } from "@/lib/api";
+import { api, getProcessingSettings, getCameras, type CameraProfile } from "@/lib/api";
 import { Panel, StatusBadge } from "@/components/ui";
 
 // NOTE: 3D rig panel removed for now (kept in repo: HumanModel3D.tsx procedural,
@@ -14,7 +14,6 @@ import HandPoseOverlay from "@/components/HandPoseOverlay";
 import SegmentTimeline from "@/components/SegmentTimeline";
 import EventMetrics from "@/components/EventMetrics";
 import Pose3D from "@/components/Pose3D";
-import DewarpControls from "@/components/DewarpControls";
 import type {
   Video, SegmentsResponse, HandPoseResponse, HeadPoseResponse, VideoSummary,
 } from "@/lib/types";
@@ -53,6 +52,15 @@ export default function VideoDetail({
   useEffect(() => {
     getProcessingSettings().then((s) => setFaceBlur(s.face_blur)).catch(() => {});
   }, []);
+  // Calibration profile for this clip's camera (drives the undistortion indicator).
+  const [camProfile, setCamProfile] = useState<CameraProfile | null>(null);
+  useEffect(() => {
+    getCameras()
+      .then(({ profiles }) =>
+        setCamProfile(profiles.find((p) => p.camera_model === (video.camera_model || "default")) ?? null)
+      )
+      .catch(() => {});
+  }, [video.camera_model]);
   useEffect(() => {
     if (vid.status !== "uploaded" && vid.status !== "processing") return;
     let alive = true;
@@ -334,7 +342,26 @@ export default function VideoDetail({
             )}
           </div>
 
-          {ready && <DewarpControls videoId={video.id} />}
+          {/* Camera + undistortion status */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted">
+            <span>
+              Camera: <span className="text-text">{vid.camera_model || "unknown"}</span>
+            </span>
+            <span>
+              Undistortion:{" "}
+              {camProfile?.calibrated ? (
+                <span className="text-accent">
+                  Applied ({camProfile.lens_model}
+                  {camProfile.reprojection_error_pixels != null
+                    ? `, ${camProfile.reprojection_error_pixels.toFixed(1)}px`
+                    : ""}
+                  )
+                </span>
+              ) : (
+                <span>Not applied (default profile — calibrate this camera to enable)</span>
+              )}
+            </span>
+          </div>
         </div>
 
         {/* 3D pose, synced to the playhead */}

@@ -67,6 +67,7 @@ def init_db() -> None:
         for name, ddl in (
             ("processing_progress", "FLOAT DEFAULT 0.0"),
             ("processing_stage", "VARCHAR(32)"),
+            ("camera_model", "VARCHAR(64) DEFAULT 'default'"),
         ):
             if name not in existing:
                 with engine.begin() as conn:

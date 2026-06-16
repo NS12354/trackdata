@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { uploadVideo } from "@/lib/api";
+import { uploadVideo, getCameras, type CameraProfile } from "@/lib/api";
 import { Panel } from "@/components/ui";
 
 export default function UploadForm() {
@@ -12,6 +12,11 @@ export default function UploadForm() {
   const [operatorId, setOperatorId] = useState("default-operator");
   const [workerId, setWorkerId] = useState("");
   const [heightCm, setHeightCm] = useState("");
+  const [cameraModel, setCameraModel] = useState("default");
+  const [cameras, setCameras] = useState<CameraProfile[]>([]);
+  useEffect(() => {
+    getCameras().then(({ profiles }) => setCameras(profiles)).catch(() => {});
+  }, []);
   const [pct, setPct] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,6 +35,7 @@ export default function UploadForm() {
           property_tag: propertyTag || undefined,
           worker_id_anonymized: workerId || undefined,
           operator_height_cm: heightCm || undefined,
+          camera_model: cameraModel || undefined,
         },
         setPct
       );
@@ -78,6 +84,21 @@ export default function UploadForm() {
             <Input value={workerId} onChange={setWorkerId} placeholder="e.g. W-001" />
           </Field>
         </div>
+
+        <Field label="Camera (selects lens-correction profile)">
+          <select
+            value={cameraModel}
+            onChange={(e) => setCameraModel(e.target.value)}
+            className="w-full rounded border border-border bg-panel2 px-3 py-1.5 text-sm text-text outline-none focus:border-accent"
+          >
+            {cameras.map((c) => (
+              <option key={c.camera_model} value={c.camera_model}>
+                {c.camera_model}
+                {c.calibrated ? ` — calibrated (${c.lens_model})` : " — not calibrated (no correction)"}
+              </option>
+            ))}
+          </select>
+        </Field>
 
         {pct !== null && (
           <div>
