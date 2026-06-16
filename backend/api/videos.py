@@ -166,6 +166,44 @@ def delete_video(video_id: str, db: Session = Depends(db_dependency)):
     return {"id": video_id, "deleted": True, "was_processing": was_processing}
 
 
+@router.get("/{video_id}/undistort-preview")
+def undistort_preview(
+    video_id: str,
+    strength: float = 0.35,
+    zoom: float = 0.0,
+    fov: float = 120.0,
+    raw: int = 0,
+    db: Session = Depends(db_dependency),
+):
+    """Return a JPEG of the cached sample frame, de-warped at the given params, so
+    the UI slider can preview corrections live. ``raw=1`` returns the original
+    (distorted) frame for before/after comparison."""
+    import cv2
+    import numpy as np
+    from pipeline.jobs import _preview_frame_key
+    from pipeline.undistort import Undistorter
+
+    if db.get(Video, video_id) is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    storage = get_storage()
+    frame_path = storage.local_path(_preview_frame_key(video_id))
+    if not frame_path.exists():
+        raise HTTPException(status_code=404, detail="preview frame not available yet")
+
+    img = cv2.imread(str(frame_path))
+    if img is None:
+        raise HTTPException(status_code=404, detail="preview frame unreadable")
+    if not raw:
+        h, w = img.shape[:2]
+        u = Undistorter(w, h, strength=strength, zoom=zoom, fov_deg=fov)
+        img = u.apply(img)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+    if not ok:
+        raise HTTPException(status_code=500, detail="failed to encode preview")
+    return Response(content=buf.tobytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store"})
+
+
 def _ranged_file_response(path: Path, request: Request, media_type: str) -> Response:
     """Serve a file with HTTP range support so browsers can scrub/seek.
 

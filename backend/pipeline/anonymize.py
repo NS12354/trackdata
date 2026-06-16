@@ -61,6 +61,7 @@ class AnonymizationResult:
     height: int
     duration_seconds: float
     output_codec: str
+    undistort: Optional[dict] = None   # de-fisheye method + rectified intrinsics
 
     def as_meta(self) -> dict:
         return asdict(self)
@@ -311,13 +312,37 @@ class _HwReader:
         self.proc.wait()
 
 
-def _make_reader(path: Path, meta: VideoMeta):
+class _UndistortReader:
+    """Wraps a reader, undistorting each decoded frame to rectilinear output.
+
+    ``read()`` frames are de-warped; ``grab()`` (skipped frames that aren't
+    inspected or written) passes through untouched for speed.
+    """
+
+    def __init__(self, inner, undistorter):
+        self.inner = inner
+        self.undistorter = undistorter
+
+    def read(self):
+        f = self.inner.read()
+        return self.undistorter.apply(f) if f is not None else None
+
+    def grab(self) -> bool:
+        return self.inner.grab()
+
+    def close(self):
+        self.inner.close()
+
+
+def _make_reader(path: Path, meta: VideoMeta, undistorter=None):
     if _hw_video_available():
         try:
-            return _HwReader(path, meta)
+            inner = _HwReader(path, meta)
         except Exception:
-            pass
-    return _SwReader(path, meta)
+            inner = _SwReader(path, meta)
+    else:
+        inner = _SwReader(path, meta)
+    return _UndistortReader(inner, undistorter) if undistorter is not None else inner
 
 
 def _target_bitrate(meta: VideoMeta) -> str:
@@ -383,6 +408,14 @@ def anonymize_video(
     max_gap = max(1, int(round(settings.temporal_max_gap_seconds * meta.fps)))
     hold = max(0, int(round(settings.temporal_hold_seconds * meta.fps)))
 
+    # Lens distortion removal: built once and shared across both passes so
+    # detection and the written output run on identical rectilinear frames.
+    from .undistort import make_undistorter
+    undistorter = make_undistorter(meta.width, meta.height)
+    if undistorter is not None:
+        log.info("undistort %s: mode=%s strength=%.2f", input_path.name,
+                 undistorter.mode, undistorter.strength)
+
     # ---- Pass 1: detect faces (configured detector / union) ----
     # Detect every Nth frame; skipped frames advance via the cheaper grab() and
     # are bridged by the temporal gap-fill. per_frame keeps one slot per source
@@ -407,7 +440,7 @@ def anonymize_video(
     current_text: List[Box] = []
     decoded = 0
     est_total = max(1, meta.frame_count)  # for pass-1 progress estimate
-    reader = _make_reader(input_path, meta)  # hardware decode when available
+    reader = _make_reader(input_path, meta, undistorter)  # hardware decode when available
     try:
         idx = 0
         while True:
@@ -452,7 +485,7 @@ def anonymize_video(
     total_detections = stats["confirmed_detections"]
 
     # ---- Pass 2: blur + encode ----
-    reader = _make_reader(input_path, meta)
+    reader = _make_reader(input_path, meta, undistorter)
     ff, output_codec = _open_ffmpeg_writer(output_path, meta)
     cv_writer = None
     if ff is None:
@@ -498,7 +531,8 @@ def anonymize_video(
 
     return AnonymizationResult(
         method=(f"{settings.face_detector}+opencv_blur+temporal_tracking+confirmation"
-                + ("+east_text_pii" if settings.enable_text_blur else "")),
+                + ("+east_text_pii" if settings.enable_text_blur else "")
+                + ("+undistort" if undistorter is not None else "")),
         frames_total=frames_total,
         frames_with_faces=frames_with_faces,
         frames_blurred=frames_blurred,
@@ -514,4 +548,5 @@ def anonymize_video(
         height=meta.height,
         duration_seconds=meta.duration_seconds,
         output_codec=output_codec,
+        undistort=undistorter.meta() if undistorter is not None else None,
     )

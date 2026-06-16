@@ -83,6 +83,45 @@ export function exportBundleUrl(id: string): string {
   return `${BASE}/api/videos/${id}/export${q}`;
 }
 
+export interface UndistortSettings {
+  enabled: boolean;
+  strength: number;
+  zoom: number;
+  fov_deg: number;
+  calibrated: boolean;
+  mode: "estimate" | "calibrated";
+}
+
+export function getUndistortSettings(): Promise<UndistortSettings> {
+  return get<UndistortSettings>("/api/settings/undistort");
+}
+
+export async function putUndistortSettings(
+  p: Partial<Pick<UndistortSettings, "enabled" | "strength" | "zoom" | "fov_deg">>
+): Promise<UndistortSettings> {
+  const res = await fetch(`${BASE}/api/settings/undistort`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(p),
+  });
+  if (!res.ok) throw new Error(`${res.status}: ${(await res.text().catch(() => "")) || "save failed"}`);
+  return res.json() as Promise<UndistortSettings>;
+}
+
+/** De-warp preview image URL for the cached sample frame. raw=true => original. */
+export function undistortPreviewUrl(
+  id: string,
+  opts: { strength?: number; zoom?: number; fov?: number; raw?: boolean } = {}
+): string {
+  const p = new URLSearchParams();
+  if (opts.raw) p.set("raw", "1");
+  if (opts.strength != null) p.set("strength", String(opts.strength));
+  if (opts.zoom != null) p.set("zoom", String(opts.zoom));
+  if (opts.fov != null) p.set("fov", String(opts.fov));
+  if (API_KEY) p.set("api_key", API_KEY);
+  return `${BASE}/api/videos/${id}/undistort-preview?${p.toString()}`;
+}
+
 export interface UploadFields {
   operator_id?: string;
   property_tag?: string;

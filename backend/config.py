@@ -113,6 +113,19 @@ class Settings(BaseSettings):
     # Minimum summed face-detection score for a candidate orientation to be
     # trusted over the metadata rotation.
     orientation_min_score: float = 1.0
+    # Fallback rotation (deg, 0/90/180/270) applied when neither faces nor
+    # metadata determine orientation — useful for a fixed-mount bodycam that is
+    # always sideways. 0 = leave as-is.
+    fallback_rotation_deg: int = 0
+
+    # --- Lens distortion removal (de-fisheye -> rectilinear "normal" footage) ---
+    # Applied during anonymization so the stored video AND all downstream pose run
+    # on rectilinear frames. Calibrated mode (camera_intrinsics.json) is exact;
+    # otherwise an estimate flattens barrel distortion by a tunable strength.
+    enable_undistort: bool = True
+    undistort_strength: float = 0.35     # 0=off … 1=strong (estimate mode only)
+    undistort_zoom: float = 0.0          # 0=crop to no black border … 1=keep full frame
+    undistort_assumed_fov_deg: float = 120.0  # estimate-mode lens width guess
 
     # --- Face detector strategy (privacy robustness) ---
     # "union" runs BOTH YuNet (cv2.FaceDetectorYN) and MediaPipe and takes the

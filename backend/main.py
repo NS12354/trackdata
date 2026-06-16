@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import videos_router, metrics_router, chat_router
+from api import videos_router, metrics_router, chat_router, settings_router
 from config import settings
 from db import init_db
 from observability import configure_logging, check_database, check_redis
@@ -75,3 +75,4 @@ def ready(response: Response) -> dict:
 app.include_router(videos_router)
 app.include_router(metrics_router)
 app.include_router(chat_router)
+app.include_router(settings_router)

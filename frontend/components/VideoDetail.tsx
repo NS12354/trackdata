@@ -14,6 +14,7 @@ import HandPoseOverlay from "@/components/HandPoseOverlay";
 import SegmentTimeline from "@/components/SegmentTimeline";
 import EventMetrics from "@/components/EventMetrics";
 import Pose3D from "@/components/Pose3D";
+import DewarpControls from "@/components/DewarpControls";
 import type {
   Video, SegmentsResponse, HandPoseResponse, HeadPoseResponse, VideoSummary,
 } from "@/lib/types";
@@ -325,6 +326,8 @@ export default function VideoDetail({
               </div>
             )}
           </div>
+
+          {ready && <DewarpControls videoId={video.id} />}
         </div>
 
         {/* 3D pose, synced to the playhead */}

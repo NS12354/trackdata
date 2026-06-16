@@ -107,10 +107,20 @@ def resolve_video_meta(path: Path) -> VideoMeta:
 
     meta_rotation = _ffprobe_rotation(path)
     content_rotation = detect_orientation_by_faces(path)
-    effective = content_rotation if content_rotation is not None else meta_rotation
-    if content_rotation is not None and content_rotation != meta_rotation:
-        log.info("orientation: content=%s overrides metadata=%s for %s",
-                 content_rotation, meta_rotation, path.name)
+    if content_rotation is not None:
+        effective = content_rotation
+        if content_rotation != meta_rotation:
+            log.info("orientation: content=%s overrides metadata=%s for %s",
+                     content_rotation, meta_rotation, path.name)
+    elif meta_rotation:
+        effective = meta_rotation
+    else:
+        # No upright faces and no metadata rotation: use the operator's configured
+        # fixed-mount fallback (e.g. a bodycam that's always sideways). 0 = as-is.
+        effective = settings.fallback_rotation_deg % 360
+        if effective:
+            log.info("orientation: using fallback_rotation_deg=%s for %s",
+                     effective, path.name)
 
     width, height = (raw_h, raw_w) if effective in (90, 270) else (raw_w, raw_h)
 
