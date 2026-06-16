@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, getProcessingSettings } from "@/lib/api";
 import { Panel, StatusBadge } from "@/components/ui";
 
 // NOTE: 3D rig panel removed for now (kept in repo: HumanModel3D.tsx procedural,
@@ -48,6 +48,11 @@ export default function VideoDetail({
   // anonymization percentage animates without a manual refresh.
   const [vid, setVid] = useState(video);
   useEffect(() => setVid(video), [video]);
+  // Whether face blur is currently enabled — so the progress label is honest.
+  const [faceBlur, setFaceBlur] = useState(true);
+  useEffect(() => {
+    getProcessingSettings().then((s) => setFaceBlur(s.face_blur)).catch(() => {});
+  }, []);
   useEffect(() => {
     if (vid.status !== "uploaded" && vid.status !== "processing") return;
     let alive = true;
@@ -214,7 +219,9 @@ export default function VideoDetail({
                         : null;
                       const label =
                         stage === "anonymizing"
-                          ? "Anonymizing (blurring faces)"
+                          ? faceBlur
+                            ? "Anonymizing (blurring faces)"
+                            : "Processing video (de-fisheye, rotate)"
                           : stage === "hand pose"
                           ? "Extracting hand pose"
                           : stage === "segmenting"

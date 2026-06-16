@@ -83,6 +83,14 @@ export function exportBundleUrl(id: string): string {
   return `${BASE}/api/videos/${id}/export${q}`;
 }
 
+export interface ProcessingSettings {
+  face_blur: boolean;
+}
+
+export function getProcessingSettings(): Promise<ProcessingSettings> {
+  return get<ProcessingSettings>("/api/settings/processing");
+}
+
 export interface UndistortSettings {
   enabled: boolean;
   strength: number;
