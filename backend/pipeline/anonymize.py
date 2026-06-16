@@ -425,7 +425,11 @@ def anonymize_video(
     candidate_detections = 0
     text_box_total = 0
     stride = max(1, settings.face_detection_stride)
-    detector = get_face_detector()
+    from .proc_flags import face_blur_enabled
+    do_face_blur = face_blur_enabled()
+    detector = get_face_detector() if do_face_blur else None
+    if not do_face_blur:
+        log.info("face blur OFF for %s (de-fisheye/rotate/re-encode only)", input_path.name)
     # Optional EAST text/PII detector (unit numbers, mail/labels, plates, screens,
     # whiteboards). High-recall: we locate text and blur it generously.
     text_detector = None
@@ -450,7 +454,7 @@ def anonymize_video(
                 frame = reader.read()  # upright BGR
                 if frame is None:
                     break
-                dets = detector.detect(frame)
+                dets = detector.detect(frame) if detector is not None else []
                 candidate_detections += len(dets)
                 # Pad each raw face box outward, carry the per-detector strong flag.
                 per_frame.append([(_dilate(d.box, pad), d.strong) for d in dets])
@@ -468,7 +472,8 @@ def anonymize_video(
             idx += 1
     finally:
         reader.close()
-        detector.close()
+        if detector is not None:
+            detector.close()
         if text_detector is not None:
             text_detector.close()
 
@@ -530,7 +535,8 @@ def anonymize_video(
     mean_faces = (total_detections / frames_total) if frames_total else 0.0
 
     return AnonymizationResult(
-        method=(f"{settings.face_detector}+opencv_blur+temporal_tracking+confirmation"
+        method=((f"{settings.face_detector}+opencv_blur+temporal_tracking+confirmation"
+                 if do_face_blur else "no_face_blur")
                 + ("+east_text_pii" if settings.enable_text_blur else "")
                 + ("+undistort" if undistorter is not None else "")),
         frames_total=frames_total,

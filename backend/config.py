@@ -127,6 +127,13 @@ class Settings(BaseSettings):
     undistort_zoom: float = 0.0          # 0=crop to no black border … 1=keep full frame
     undistort_assumed_fov_deg: float = 120.0  # estimate-mode lens width guess
 
+    # --- Face blur ---
+    # Master switch for face anonymization. Off skips face detection + blur
+    # entirely (faster) while still de-fishing, rotating, and re-encoding. Only
+    # turn off for footage you KNOW contains no faces — re-enable before any clip
+    # with people. Runtime-toggleable via /api/settings/processing.
+    enable_face_blur: bool = True
+
     # --- Face detector strategy (privacy robustness) ---
     # "union" runs BOTH YuNet (cv2.FaceDetectorYN) and MediaPipe and takes the
     # union of detections for redundancy — a face missed by one may be caught by

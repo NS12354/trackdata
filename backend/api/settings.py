@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from pipeline.undistort import get_runtime_params, set_runtime_params, is_calibrated
+from pipeline.proc_flags import get_flags, set_flags
 from .security import require_api_key
 
 router = APIRouter(prefix="/api/settings", tags=["settings"],
@@ -48,3 +49,17 @@ def put_undistort(params: UndistortParams):
         kw["fov_deg"] = max(20.0, min(170.0, float(kw["fov_deg"])))
     set_runtime_params(**kw)
     return _payload()
+
+
+class ProcessingFlags(BaseModel):
+    face_blur: Optional[bool] = None
+
+
+@router.get("/processing")
+def get_processing():
+    return get_flags()
+
+
+@router.put("/processing")
+def put_processing(flags: ProcessingFlags):
+    return set_flags(**{k: v for k, v in flags.model_dump().items() if v is not None})
