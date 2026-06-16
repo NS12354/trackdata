@@ -131,7 +131,7 @@ export default function DewarpControls({ videoId }: { videoId: string }) {
           max={1}
           step={0.01}
           disabled={!enabled}
-          fmt={(v) => (v === 0 ? "crop (no border)" : v === 1 ? "keep all" : `${Math.round(v * 100)}%`)}
+          fmt={(v) => (v === 0 ? "none" : `+${Math.round(v * 25)}% tighter`)}
           onChange={setZoom}
         />
         <Slider

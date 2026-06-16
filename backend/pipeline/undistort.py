@@ -139,21 +139,30 @@ class Undistorter:
         self.new_K, self._map1, self._map2 = new_K, m1, m2
 
     def _build_estimate(self) -> None:
+        """Bounded barrel-removal remap, normalized by the half-diagonal so the
+        radius stays in [0,1] across the whole frame (any aspect ratio). This
+        avoids the polynomial blow-up that OpenCV's f-normalized model suffers on
+        tall portrait frames, and never produces black borders (it samples
+        inward). strength 0 => identity."""
         W, H = self.width, self.height
         s = float(np.clip(self.strength, 0.0, 1.0))
+        cx, cy = (W - 1) / 2.0, (H - 1) / 2.0
+        R = 0.5 * math.hypot(W, H)               # half-diagonal: max radius ≈ 1
+        k = 0.6 * s                              # bounded barrel-removal coefficient
+
+        ys, xs = np.indices((H, W), dtype=np.float32)
+        nx = (xs - cx) / R
+        ny = (ys - cy) / R
+        r2 = nx * nx + ny * ny                   # ∈ [0, ~1]
+        # Sample inward at the edges to flatten barrel bulge; scale ∈ [1-k, 1].
+        scale = 1.0 - k * r2
+        # zoom: slightly tighten the crop as the knob increases (no black border).
+        scale *= 1.0 - 0.25 * float(np.clip(self.zoom, 0.0, 1.0))
+
+        self._map1 = (cx + nx * scale * R).astype(np.float32)
+        self._map2 = (cy + ny * scale * R).astype(np.float32)
         f = _f_from_fov(W, self.fov_deg)
-        K = np.array([[f, 0, W / 2.0], [0, f, H / 2.0], [0, 0, 1.0]], dtype=np.float64)
-        # Negative radial terms flatten barrel distortion; magnitude scales with
-        # the strength knob. k2 adds a gentler higher-order term for wide lenses.
-        k1 = -0.40 * s
-        k2 = -0.10 * s
-        D = np.array([k1, k2, 0.0, 0.0, 0.0], dtype=np.float64)
-        # alpha=0 keeps only valid pixels (no black border, slight zoom); the zoom
-        # knob lets the user trade FOV for border (1 => keep all source pixels).
-        alpha = float(np.clip(self.zoom, 0.0, 1.0))
-        new_K, _ = cv2.getOptimalNewCameraMatrix(K, D, (W, H), alpha, (W, H))
-        m1, m2 = cv2.initUndistortRectifyMap(K, D, None, new_K, (W, H), cv2.CV_16SC2)
-        self.new_K, self._map1, self._map2 = new_K, m1, m2
+        self.new_K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
 
     # ---- application -------------------------------------------------------
     @property
