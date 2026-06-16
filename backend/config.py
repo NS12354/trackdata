@@ -245,7 +245,7 @@ class Settings(BaseSettings):
     # Provider: "ollama" runs a LOCAL vision model (free, no data egress);
     # "claude" uses the Anthropic API (paid, opt-in). Default is the free local
     # path so processing never costs money.
-    segmentation_provider: str = "ollama"  # ollama | claude
+    segmentation_provider: str = "ollama"  # ollama | claude | gemini
     # Sample this many frames per second to classify.
     segmentation_sample_fps: float = 1.0
     # Merge/discard segments shorter than this (seconds) to reduce flicker.
@@ -268,6 +268,12 @@ class Settings(BaseSettings):
     ollama_use_json: bool = False
     # Claude VLM (only used when segmentation_provider == "claude").
     claude_vlm_model: str = "claude-sonnet-4-6"
+    # Gemini VLM (only used when segmentation_provider == "gemini"). Flash is the
+    # cost-effective accuracy upgrade over the tiny local model. Needs an API key;
+    # NOTE: frames are sent to Google (data egress) — gate on consent for footage
+    # with people/interiors.
+    gemini_vlm_model: str = "gemini-2.5-flash"
+    gemini_api_key: str = ""
 
     # --- Head pose / ego-body (visual odometry) ---
     # Approximate horizontal field of view of the head camera (degrees), used to

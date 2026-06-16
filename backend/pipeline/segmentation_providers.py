@@ -36,15 +36,21 @@ TASK_TAXONOMY: List[str] = [
 ]
 _TAXONOMY_LOWER = {t.lower(): t for t in TASK_TAXONOMY}
 
-# Claude follows structured-output instructions well, so we ask it for JSON.
+# Capable models (Claude, Gemini) follow structured-output instructions well, so
+# we ask for JSON. The frame is EGOCENTRIC (chest-mounted), so the worker's own
+# hands/arms are usually the subject — classify the dominant action they're doing.
 _JSON_PROMPT = (
-    "You are analyzing a single frame from a waste-services field worker's "
-    "chest-mounted camera. Decide which ONE of these tasks best matches what is "
-    "happening in the frame:\n"
+    "This is a single frame from a waste-services worker's CHEST-MOUNTED "
+    "(egocentric) camera, so the worker's own hands and arms are usually visible "
+    "doing the action. Pick the ONE task below that best matches the dominant "
+    "action in the frame:\n"
     + "\n".join(f"- {t}" for t in TASK_TAXONOMY)
-    + "\n\nRespond ONLY with compact JSON of the form "
+    + "\n\nGuidance: prefer the most specific task the evidence supports; only "
+    "choose 'idle/waiting' when no other task clearly applies. Base it on the "
+    "hands and the objects being handled, not the background.\n"
+    "Respond ONLY with compact JSON: "
     '{"task": "<one task from the list, verbatim>", '
-    '"confidence": <0.0-1.0>, "description": "<one short sentence>"}.'
+    '"confidence": <0.0-1.0>, "description": "<one short sentence naming the action and object>"}.'
 )
 
 # Small local VLMs are weak at structured output but good at captioning, so we
@@ -238,10 +244,75 @@ class ClaudeVLMProvider:
         return bool(settings.anthropic_api_key)
 
 
+class GeminiVLMProvider:
+    """Google Gemini vision model via the REST API (no SDK dependency).
+
+    Flash is the cost-effective accuracy upgrade over the tiny local model.
+    Frames are sent to Google — data egress; gate on consent for footage with
+    people/interiors.
+    """
+
+    name = "gemini"
+    # Approx Gemini 2.5 Flash pricing (USD per token); used only to log an estimate.
+    _IN_PER_TOK = 0.30 / 1_000_000
+    _OUT_PER_TOK = 2.50 / 1_000_000
+    _ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    def __init__(self):
+        if not settings.gemini_api_key:
+            raise RuntimeError("segmentation_provider=gemini requires GEMINI_API_KEY")
+        self.model = settings.gemini_vlm_model
+        self.key = settings.gemini_api_key
+        self.timeout = 60
+
+    def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
+        b64 = base64.b64encode(jpeg_bytes).decode()
+        open_mode = settings.segmentation_mode == "open"
+        prompt = _OPEN_PROMPT if open_mode else _JSON_PROMPT
+        gen_cfg = {"temperature": 0.0, "maxOutputTokens": 200}
+        if not open_mode:
+            gen_cfg["responseMimeType"] = "application/json"  # force structured output
+        body = {
+            "contents": [{"parts": [
+                {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
+                {"text": prompt},
+            ]}],
+            "generationConfig": gen_cfg,
+        }
+        resp = requests.post(
+            self._ENDPOINT.format(model=self.model),
+            params={"key": self.key}, json=body, timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = _gemini_text(data)
+        usage = data.get("usageMetadata", {})
+        cost = (usage.get("promptTokenCount", 0) * self._IN_PER_TOK
+                + usage.get("candidatesTokenCount", 0) * self._OUT_PER_TOK)
+        if open_mode:
+            return FrameLabel(task=_derive_activity(text), confidence=0.8,
+                              description=text, raw=text[:500]), cost
+        return _parse_label(text), cost
+
+    def healthcheck(self) -> bool:
+        return bool(settings.gemini_api_key)
+
+
+def _gemini_text(data: dict) -> str:
+    """Extract the text from a Gemini generateContent response, defensively."""
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip()
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
 def get_segmentation_provider():
     provider = settings.segmentation_provider.lower()
     if provider == "ollama":
         return OllamaVLMProvider()
     if provider == "claude":
         return ClaudeVLMProvider()
+    if provider == "gemini":
+        return GeminiVLMProvider()
     raise ValueError(f"unknown segmentation_provider {settings.segmentation_provider!r}")
