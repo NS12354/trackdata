@@ -37,6 +37,29 @@ so footage is never warped by guesswork.
 No real camera yet? Calibrate any webcam/phone and use a model name like
 `laptop_webcam` — the plumbing is identical.
 
+## Add a profile WITHOUT a checkerboard (from ordinary footage)
+
+`scripts/calibrate_from_footage.py` self-calibrates from a normal clip using
+Structure-from-Motion (COLMAP) — no board, no special capture. Run once per model.
+
+One-time install: `brew install colmap` (macOS) / `apt-get install colmap` (Linux).
+
+```
+python scripts/calibrate_from_footage.py \
+    --input ../data/calibration/transcend_walkaround.mp4 \
+    --camera-model transcend_dpb30 \
+    --fps 2
+```
+
+Give it a 30–90s clip where the camera **moves through the space** (walking, turning)
+with texture and straight architectural edges — COLMAP needs parallax, so a static
+stare won't reconstruct. It writes the same profile JSON as the checkerboard tool.
+
+Accuracy: checkerboard ≳ COLMAP-from-footage > nothing. COLMAP is the no-board
+option; the checkerboard is still the most precise. The pipeline default
+(`default.json`, identity) leaves footage untouched until a profile is populated,
+so nothing is ever warped by guesswork.
+
 ## Schema
 
 | field | meaning |
