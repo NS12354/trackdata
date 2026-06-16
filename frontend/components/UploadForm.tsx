@@ -12,10 +12,15 @@ export default function UploadForm() {
   const [operatorId, setOperatorId] = useState("default-operator");
   const [workerId, setWorkerId] = useState("");
   const [heightCm, setHeightCm] = useState("");
-  const [cameraModel, setCameraModel] = useState("default");
+  const [cameraModel, setCameraModel] = useState("");
   const [cameras, setCameras] = useState<CameraProfile[]>([]);
   useEffect(() => {
-    getCameras().then(({ profiles }) => setCameras(profiles)).catch(() => {});
+    getCameras()
+      .then(({ profiles, default: def }) => {
+        setCameras(profiles);
+        setCameraModel(def); // fleet default (Transcend) — pre-selected, zero effort
+      })
+      .catch(() => {});
   }, []);
   const [pct, setPct] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);

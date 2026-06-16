@@ -98,8 +98,8 @@ export interface CameraProfile {
   reprojection_error_pixels: number | null;
 }
 
-export function getCameras(): Promise<{ profiles: CameraProfile[] }> {
-  return get<{ profiles: CameraProfile[] }>("/api/settings/cameras");
+export function getCameras(): Promise<{ profiles: CameraProfile[]; default: string }> {
+  return get<{ profiles: CameraProfile[]; default: string }>("/api/settings/cameras");
 }
 
 export interface UploadFields {

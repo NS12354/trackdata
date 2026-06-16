@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from config import settings
 from pipeline.proc_flags import get_flags, set_flags
 from pipeline.undistort import list_profiles
 from .security import require_api_key
@@ -36,4 +37,4 @@ def put_processing(flags: ProcessingFlags):
 @router.get("/cameras")
 def get_cameras():
     """Available camera calibration profiles (for the upload picker / dashboard)."""
-    return {"profiles": list_profiles()}
+    return {"profiles": list_profiles(), "default": settings.default_camera_model}

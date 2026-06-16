@@ -125,6 +125,11 @@ class Settings(BaseSettings):
     # distortion); unknown/uncalibrated cameras use default.json (identity no-op).
     # Master switch — when False, no undistortion runs regardless of profile.
     enable_undistort: bool = True
+    # Fleet default camera model — every upload uses this profile unless overridden,
+    # so nobody has to tag clips. The whole fleet wears one Transcend DPB30, so one
+    # calibration of this profile undistorts everything. Identity (no-op) until
+    # calibrated (scripts/calibrate_camera.py --camera-model transcend_dpb30).
+    default_camera_model: str = "transcend_dpb30"
 
     # --- Face blur ---
     # Master switch for face anonymization. Off skips face detection + blur
