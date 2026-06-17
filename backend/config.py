@@ -193,17 +193,18 @@ class Settings(BaseSettings):
     # output metadata so consumers know the sampling rate.
     hand_pose_sample_fps: float = 10.0
     hand_pose_max_hands: int = 2
-    # Model complexity: 0 = "lite", 1 = "full". TUNED to 0 — on blurry/fast/
-    # occluded egocentric footage the lite palm detector is far more permissive and
-    # recovers ~3x more hands (AssemblyHands: 10.8% -> 36.3% detection) at ~no
-    # accuracy cost (~22mm PA-MPJPE either way). For blur/speed, catching the hand
-    # at all beats a few mm of precision. (Measured via scripts/tune_hand.py.)
-    hand_pose_model_complexity: int = 0
-    # Lowered to 0.1: blurry/fast hands and hands partly out of frame produce weak
-    # detections; a low bar recovers them. Stray hand keypoints are harmless (not a
-    # privacy issue, unlike faces), so we bias hard toward recall on messy footage.
-    hand_pose_min_detection_confidence: float = 0.1
-    hand_pose_min_tracking_confidence: float = 0.1
+    # Model complexity: 0 = "lite", 1 = "full". Set to 1 (full): the lite model
+    # maximized DETECTION coverage + PA-MPJPE (shape) but produced jittery,
+    # mis-placed landmarks in image space (the metric ignored global position).
+    # Full model + higher confidence ~halved frame-to-frame jitter and wrist
+    # teleporting at only ~8% lower coverage. Quality > coverage for a lab dataset.
+    # (Trade-off: full model is ~2-3x slower per frame — matters for bulk
+    # throughput; revisit if 1000-hr batch time becomes the bottleneck.)
+    hand_pose_model_complexity: int = 1
+    # Raised to 0.4: confidence 0.1 accepted low-quality detections that jumped
+    # around between frames. 0.4 rejects the garbage; gap-fill bridges short drops.
+    hand_pose_min_detection_confidence: float = 0.4
+    hand_pose_min_tracking_confidence: float = 0.4
     # MediaPipe Hands reports handedness assuming a mirrored (selfie) image. A
     # chest-worn forward camera is not mirrored, so the raw Left/Right labels are
     # swapped relative to the worker's actual hands. Set True to swap them back.
