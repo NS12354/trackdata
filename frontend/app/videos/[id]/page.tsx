@@ -43,7 +43,7 @@ export default async function VideoDetailPage({ params }: { params: { id: string
       handpose={handpose}
       headpose={headpose}
       summary={summary}
-      videoUrl={anonymizedVideoUrl(params.id)}
+      videoUrl={anonymizedVideoUrl(params.id, video.anonymized_at)}
     />
   );
 }

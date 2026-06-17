@@ -44,10 +44,10 @@ export default async function VideosPage() {
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                 <th className="px-4 py-2 font-medium">File</th>
-                <th className="px-4 py-2 font-medium">Property</th>
+                <th className="px-4 py-2 font-medium">Location</th>
                 <th className="px-4 py-2 font-medium">Uploaded</th>
                 <th className="px-4 py-2 font-medium">Duration</th>
-                <th className="px-4 py-2 font-medium">Blur</th>
+                <th className="px-4 py-2 font-medium">Privacy</th>
                 <th className="px-4 py-2 font-medium">Pipeline</th>
                 <th className="px-4 py-2 font-medium">Status</th>
               </tr>
@@ -63,7 +63,11 @@ export default async function VideosPage() {
                   <td className="px-4 py-2 text-muted">{v.property_tag || "—"}</td>
                   <td className="px-4 py-2 text-muted">{fmtDate(v.uploaded_at)}</td>
                   <td className="px-4 py-2 tabular-nums text-muted">{fmtDuration(v.duration_seconds)}</td>
-                  <td className="px-4 py-2 tabular-nums text-muted">{fmtPct(v.anonymization_coverage)}</td>
+                  <td className="px-4 py-2 tabular-nums text-muted">
+                    {v.anonymization_method?.startsWith("none")
+                      ? "blur off"
+                      : fmtPct(v.anonymization_coverage)}
+                  </td>
                   <td className="px-4 py-2">
                     <PipelineDots video={v} />
                   </td>

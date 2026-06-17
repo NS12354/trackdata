@@ -1,0 +1,5 @@
+{"ts": 1781076259.391769, "video_id": "img0078", "editor": "dashboard", "op": "update", "segment_index": 8, "field": "task_label", "before": "dry your hair blow", "after": "massage neck with massage gun"}
+{"ts": 1781076902.046063, "video_id": "img0078", "editor": "dashboard", "op": "move_boundary", "segment_index": 0, "field": "boundary", "before": 2.5, "after": 3.147}
+{"ts": 1781076967.4422123, "video_id": "img0078", "editor": "dashboard", "op": "update", "segment_index": 3, "field": "task_label", "before": "open box", "after": "Hold the tissue box"}
+{"ts": 1781076998.9307692, "video_id": "img0078", "editor": "dashboard", "op": "update", "segment_index": 3, "field": "description", "before": "Open the box.", "after": "Hold the tissue box"}
+{"ts": 1781077757.9468403, "video_id": "img0078", "editor": "dashboard", "op": "restore", "segment_index": 8, "field": "task_label", "note": "re-applied after VLM overwrite (now guarded)"}

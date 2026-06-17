@@ -32,14 +32,25 @@ def capture_record(vdict: dict, capture: dict) -> dict:
     vdict: video.to_dict(); capture: {fps,width,height} from the anonymization meta.
     """
     intr = load_intrinsics()
+    mount = getattr(settings, "camera_mount", "chest")
+    if mount == "head":
+        mount_label = "head (forehead-mounted)"
+        geometry = {
+            "height_frac_of_operator": settings.ego_head_mount_height_frac,
+            "forward_frac_of_operator": settings.ego_head_mount_forward_frac,
+            "pitch_deg_down": settings.ego_head_mount_pitch_deg,
+        }
+    else:
+        mount_label = "chest (shirt-clipped)"
+        geometry = {
+            "height_frac_of_operator": settings.ego_chest_mount_height_frac,
+            "forward_frac_of_operator": settings.ego_chest_mount_forward_frac,
+            "pitch_deg_down": settings.ego_chest_mount_pitch_deg,
+        }
     return {
         "camera": {
-            "mount": "chest (shirt-clipped)",
-            "mount_geometry_body_frame": {
-                "height_frac_of_operator": settings.ego_chest_mount_height_frac,
-                "forward_frac_of_operator": settings.ego_chest_mount_forward_frac,
-                "pitch_deg_down": settings.ego_chest_mount_pitch_deg,
-            },
+            "mount": mount_label,
+            "mount_geometry_body_frame": geometry,
             "intrinsics": intr or {
                 "status": "NOT CALIBRATED — run scripts/calibrate_camera.py",
                 "assumed_fov_deg": settings.ego_camera_fov_deg,

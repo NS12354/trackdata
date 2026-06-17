@@ -37,6 +37,26 @@ backend/ml_models/*.onnx
 backend/.serve_api_key
 backend/.serve_ngrok_domain
 
+# --- Local scratch / heavy artifacts: NEVER commit ---
+# Throwaway virtualenvs (multi-GB) built by experiment scripts
+data/tmp_wilor_env/
+data/tmp_lerobot_env/
+data/tmp_*_env/
+# Redis on-disk dumps + DB snapshots
+data/redis/
+*.rdb
+# Demo footage (private data, large)
+data/demo/
+# Misc scratch outputs from one-off experiments
+data/worker.log
+data/tmp_wilor_*.jsonl
+data/wilor_compare.png
+data/wilor_test_frame.png
+data/wilor_bootstrap.py
+data/mp_frame.json
+data/mp_seg.json
+
 # --- OS / editor ---
 .DS_Store
 *.swp
+.vscode/

@@ -112,6 +112,27 @@ export function computeBodyJoints(
   };
 }
 
+/** Grasp aperture from 21-pt landmarks: thumb-tip<->index-tip distance in palm
+ * lengths, remapped to [0,1] (0 = pinched shut, 1 = open). Mirrors the backend
+ * gripper channel (pipeline/grasp.py) so the UI shows the exported signal. */
+export function graspAperture(hand: Landmark[] | null | undefined): number | null {
+  if (!hand || hand.length < 21) return null;
+  const d = (a: Landmark, b: Landmark) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const palm = d(hand[0], hand[9]); // wrist -> middle MCP
+  if (palm < 1e-6) return null;
+  const aperture = d(hand[4], hand[8]) / palm; // thumb tip -> index tip
+  return Math.min(1, Math.max(0, (aperture - 0.4) / 1.2));
+}
+
+/** Metric grasp aperture in METERS (thumb tip <-> index tip) from world
+ * landmarks; null when unavailable. Real units a gripper can be commanded in. */
+export function graspApertureMeters(world: Landmark[] | null | undefined): number | null {
+  if (!world || world.length < 21) return null;
+  const a = world[4], b = world[8];
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
 /** Nearest-by-timestamp lookup for syncing pose frames to the video clock. */
 export function nearestByTime<T extends { timestamp_ms: number }>(
   arr: T[], times: number[], ms: number
@@ -125,4 +146,69 @@ export function nearestByTime<T extends { timestamp_ms: number }>(
   }
   if (lo > 0 && Math.abs(times[lo - 1] - ms) < Math.abs(times[lo] - ms)) lo -= 1;
   return arr[lo];
+}
+
+function lerpHand(a: Landmark[], b: Landmark[], t: number): Landmark[] {
+  return a.map((p, i) => [
+    p[0] + (b[i][0] - p[0]) * t,
+    p[1] + (b[i][1] - p[1]) * t,
+    p[2] + (b[i][2] - p[2]) * t,
+  ]) as Landmark[];
+}
+
+export interface HandsAt {
+  left: Landmark[] | null;
+  right: Landmark[] | null;
+  leftWorld: Landmark[] | null;
+  rightWorld: Landmark[] | null;
+}
+
+/** Hands at an exact video time, INTERPOLATED between the two surrounding pose
+ * samples — pose is sampled at ~10fps while video plays at 30/60fps, and
+ * nearest-frame snapping reads as lag/stutter. Falls back to the nearest
+ * sample (within snapMs) when a hand exists on only one side of the gap, and
+ * to nothing across genuine dropouts (> maxGapMs). */
+export function interpolateHandsAt(
+  frames: { timestamp_ms: number;
+            left_hand_landmarks: Landmark[] | null;
+            right_hand_landmarks: Landmark[] | null;
+            left_world_landmarks?: Landmark[] | null;
+            right_world_landmarks?: Landmark[] | null }[],
+  times: number[],
+  ms: number,
+  maxGapMs = 250,
+  snapMs = 150,
+): HandsAt {
+  const out: HandsAt = { left: null, right: null, leftWorld: null, rightWorld: null };
+  if (!frames.length) return out;
+  let lo = 0, hi = times.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < ms) lo = mid + 1;
+    else hi = mid;
+  }
+  const i1 = lo, i0 = Math.max(0, lo - 1);
+  const f0 = frames[i0], f1 = frames[i1];
+  const span = times[i1] - times[i0];
+  const t = span > 0 ? Math.min(1, Math.max(0, (ms - times[i0]) / span)) : 0;
+  const d0 = Math.abs(times[i0] - ms), d1 = Math.abs(times[i1] - ms);
+
+  const pick = (key: "left_hand_landmarks" | "right_hand_landmarks" |
+                     "left_world_landmarks" | "right_world_landmarks") => {
+    const a = (f0 as any)[key] as Landmark[] | null | undefined;
+    const b = (f1 as any)[key] as Landmark[] | null | undefined;
+    if (a && b && span <= maxGapMs) {
+      // Identity guard: never lerp across a teleport-sized jump (a residual
+      // L/R swap during hand crossover) — that renders as a janky swoop.
+      const jump = Math.hypot(a[0][0] - b[0][0], a[0][1] - b[0][1]);
+      if (jump < 0.18) return lerpHand(a, b, t);
+    }
+    const nearer = d0 <= d1 ? a : b;
+    return (d0 <= d1 ? d0 : d1) <= snapMs ? (nearer ?? null) : null;
+  };
+  out.left = pick("left_hand_landmarks");
+  out.right = pick("right_hand_landmarks");
+  out.leftWorld = pick("left_world_landmarks");
+  out.rightWorld = pick("right_world_landmarks");
+  return out;
 }

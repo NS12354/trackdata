@@ -67,7 +67,12 @@ def _ffprobe_rotation(path: Path) -> int:
             rot = int(tag)
         for sd in st.get("side_data_list", []):
             if "rotation" in sd:
-                rot = int(sd["rotation"])
+                # The display-matrix side data uses the OPPOSITE sign convention
+                # to the legacy rotate tag (side_data -90 == tag 90 == "rotate
+                # 90 deg clockwise to display"). Negate so apply_rotation's
+                # tag-convention mapping (90 -> CW) displays correctly. Verified
+                # against ffmpeg's own autorotation on real iPhone footage.
+                rot = -int(sd["rotation"])
         return rot % 360
     except Exception:
         return 0

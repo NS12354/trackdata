@@ -8,7 +8,7 @@ export default function UploadPage() {
       <div>
         <h1 className="text-xl font-semibold">Upload video</h1>
         <p className="text-sm text-muted">
-          Chest-worn camera footage. Processing runs locally and free.
+          Head- or chest-mounted egocentric footage. Processing runs locally and free.
         </p>
       </div>
       <UploadForm />

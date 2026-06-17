@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { interpolateHandsAt } from "@/lib/pose";
 import type { HandPoseFrame, Landmark } from "@/lib/types";
 
 // MediaPipe Hands 21-point skeleton connections.
@@ -53,22 +54,10 @@ export default function HandPoseOverlay({
     const video = videoRef.current;
     if (!canvas || !video) return;
 
-    // frames are sorted by timestamp; binary-search the nearest to currentTime.
+    // Pose is sampled at ~10fps; the video plays at 30/60. Interpolating
+    // between the surrounding samples at the exact playhead time keeps the
+    // skeleton glued to the hand instead of stepping/lagging at 10Hz.
     const times = frames.map((f) => f.timestamp_ms);
-    const nearest = (ms: number): HandPoseFrame | null => {
-      if (frames.length === 0) return null;
-      let lo = 0,
-        hi = times.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (times[mid] < ms) lo = mid + 1;
-        else hi = mid;
-      }
-      // pick the closer of lo and lo-1
-      if (lo > 0 && Math.abs(times[lo - 1] - ms) <= Math.abs(times[lo] - ms)) lo -= 1;
-      // only show if within ~150ms (otherwise the hand wasn't sampled here)
-      return Math.abs(times[lo] - ms) <= 150 ? frames[lo] : null;
-    };
 
     let raf = 0;
     const render = () => {
@@ -80,11 +69,9 @@ export default function HandPoseOverlay({
         if (canvas.height !== h) canvas.height = h;
         ctx.clearRect(0, 0, w, h);
         if (enabled) {
-          const f = nearest(video.currentTime * 1000);
-          if (f) {
-            if (f.left_hand_landmarks) drawHand(ctx, f.left_hand_landmarks, w, h, "#22c55e", "#ef4444");
-            if (f.right_hand_landmarks) drawHand(ctx, f.right_hand_landmarks, w, h, "#38bdf8", "#ef4444");
-          }
+          const hands = interpolateHandsAt(frames, times, video.currentTime * 1000);
+          if (hands.left) drawHand(ctx, hands.left, w, h, "#22c55e", "#ef4444");
+          if (hands.right) drawHand(ctx, hands.right, w, h, "#38bdf8", "#ef4444");
         }
       }
       raf = requestAnimationFrame(render);

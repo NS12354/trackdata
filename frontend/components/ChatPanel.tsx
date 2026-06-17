@@ -11,9 +11,9 @@ interface Msg {
 }
 
 const EXAMPLES = [
-  "What was the worker doing in this video?",
-  "When did they handle a container?",
-  "Was there any idle time?",
+  "What was the person doing in this video?",
+  "When did they pick something up?",
+  "Which activities took the longest?",
   "Summarize the activity timeline.",
 ];
 

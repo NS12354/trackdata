@@ -46,10 +46,10 @@ export default function UploadForm() {
   return (
     <Panel className="max-w-xl p-6">
       <form onSubmit={onSubmit} className="space-y-4">
-        <Field label="Video file (.mp4 / .mov, up to 5GB)">
+        <Field label="Video file (.mp4 / .mov / .avi / .mkv, up to 5GB)">
           <input
             type="file"
-            accept="video/mp4,video/quicktime,.mp4,.mov"
+            accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.avi,.mkv,.webm"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             required
             className="block w-full text-sm text-muted file:mr-3 file:rounded file:border file:border-border file:bg-panel2 file:px-3 file:py-1.5 file:text-sm file:text-text hover:file:border-accent"
@@ -62,20 +62,20 @@ export default function UploadForm() {
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Property tag (optional)">
-            <Input value={propertyTag} onChange={setPropertyTag} placeholder="e.g. Greystar-Maple" />
+          <Field label="Location / scene tag (optional)">
+            <Input value={propertyTag} onChange={setPropertyTag} placeholder="e.g. kitchen, workshop" />
           </Field>
-          <Field label="Operator height cm (for body pose)">
-            <Input value={heightCm} onChange={setHeightCm} placeholder="e.g. 162" />
+          <Field label="Wearer height cm (scales body pose)">
+            <Input value={heightCm} onChange={setHeightCm} placeholder="e.g. 175" />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Operator ID">
+          <Field label="Collector ID">
             <Input value={operatorId} onChange={setOperatorId} />
           </Field>
-          <Field label="Worker ID (anonymized, optional)">
-            <Input value={workerId} onChange={setWorkerId} placeholder="e.g. W-001" />
+          <Field label="Wearer ID (anonymized, optional)">
+            <Input value={workerId} onChange={setWorkerId} placeholder="e.g. subject-001" />
           </Field>
         </div>
 
@@ -104,8 +104,9 @@ export default function UploadForm() {
           {busy ? "Uploading…" : "Upload & process"}
         </button>
         <p className="text-xs text-muted">
-          After upload, the clip is anonymized → hand-pose → segmented → events
-          automatically. You’ll be taken to its page to watch progress.
+          After upload, the clip is anonymized → hand &amp; body pose → activity
+          annotation → metrics, automatically. You’ll be taken to its page to
+          watch progress.
         </p>
       </form>
     </Panel>

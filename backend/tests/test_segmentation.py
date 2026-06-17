@@ -10,6 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from config import settings  # noqa: E402
 from pipeline.segmentation_providers import _match_taxonomy, _parse_label, FrameLabel  # noqa: E402
 from pipeline.segmentation import segment_video, _aggregate, _merge_short, Segment  # noqa: E402
 
@@ -71,7 +72,14 @@ def test_segment_video_end_to_end_mocked():
     # 4s @ 1fps -> ~4 samples. Provider returns transit, transit, loading, loading.
     provider = _FakeProvider(["transit/walking", "transit/walking",
                               "loading/unloading", "loading/unloading"])
-    result = segment_video(clip, "testvid", provider=provider, sample_fps=1.0)
+    # This test exercises the PERFRAME flow regardless of the .env boundary mode
+    # (the fused flow has its own end-to-end test in test_boundary.py).
+    prev_mode = settings.segmentation_boundary_mode
+    settings.segmentation_boundary_mode = "perframe"
+    try:
+        result = segment_video(clip, "testvid", provider=provider, sample_fps=1.0)
+    finally:
+        settings.segmentation_boundary_mode = prev_mode
 
     assert result.cost_usd == 0.0, "local/mock provider must be free"
     assert result.provider == "fake"

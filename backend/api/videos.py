@@ -290,6 +290,36 @@ def trigger_segmentation(video_id: str, db: Session = Depends(db_dependency)):
     return {"status": "scheduled", "video_id": video_id}
 
 
+@router.get("/{video_id}/progress")
+def get_progress(video_id: str):
+    """Live processing progress (stage, pct, detail) from the clip's sidecar."""
+    from pipeline.progress import read
+    return read(video_id)
+
+
+@router.patch("/{video_id}/segments")
+def correct_segments(video_id: str, body: dict, db: Session = Depends(db_dependency)):
+    """Persist human corrections to the segment timeline (labels, descriptions,
+    boundaries), log every edit to the audit trail, and re-derive events.
+    Body: {"segments": [full corrected list], "edits": [change records]}."""
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=404, detail="video not found")
+    segments = body.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise HTTPException(status_code=422, detail="body.segments must be a non-empty list")
+    from pipeline.annotations import apply_corrections
+    try:
+        doc = apply_corrections(video_id, segments, edits=body.get("edits"))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="segments not extracted yet")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    log.info("segments corrected for %s: %d segments, %d verified",
+             video_id, len(doc["segments"]), doc.get("human_verified_count", 0))
+    return doc
+
+
 @router.get("/{video_id}/segments")
 def get_segments(video_id: str, db: Session = Depends(db_dependency)):
     """Return the task segments (start/end/label/confidence/description) + cost."""

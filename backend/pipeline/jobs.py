@@ -80,6 +80,8 @@ def run_body_pose(video_id: str) -> None:
         if v is not None and getattr(v, "operator_height_cm", None):
             height_cm = v.operator_height_cm
 
+    from .progress import report
+    report(video_id, "assembling body pose", detail="skeleton + grasp channels")
     frames = estimate_body_pose(head_poses, hand_frames, height_cm=height_cm, image_wh=wh)
     doc = body_pose_to_json(video_id, frames, height_cm)
     storage.local_path(_body_pose_key(video_id)).write_text(json.dumps(doc))
@@ -95,6 +97,8 @@ def run_head_pose(video_id: str) -> None:
     if not storage.exists(anon_key):
         raise FileNotFoundError(f"anonymized video missing for {video_id}")
     from .ego_pose import estimate_head_trajectory, trajectory_to_json
+    from .progress import report
+    report(video_id, "estimating camera motion", detail="visual odometry")
     in_path = storage.local_path(anon_key)
     out_path = storage.local_path(_head_pose_key(video_id))
     poses = estimate_head_trajectory(in_path)
@@ -122,8 +126,17 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
         out_key = _anonymized_key(video_id)
         out_path = storage.local_path(out_key)
 
-        log.info("anonymizing %s -> %s", in_path, out_path)
-        result = anonymize_video(in_path, out_path)
+        from .progress import report
+        if getattr(settings, "blur_enabled", True):
+            log.info("anonymizing %s -> %s", in_path, out_path)
+            report(video_id, "anonymizing faces", detail="union detector + blur + encode")
+            result = anonymize_video(in_path, out_path)
+        else:
+            from .anonymize import passthrough_copy
+            log.info("blur disabled: passthrough transcode %s -> %s", in_path, out_path)
+            report(video_id, "ingesting video", detail="GPU transcode (NVENC), blur off")
+            result = passthrough_copy(in_path, out_path)
+        report(video_id, "ingest complete", pct=100)
         log.info(
             "anonymized %s: coverage=%.1f%% faces=%d frames=%d codec=%s",
             video_id, result.coverage * 100, result.total_face_detections,
@@ -134,7 +147,8 @@ def run_anonymization(video_id: str, upload_key: str) -> None:
             video = s.get(Video, video_id)
             video.status = VideoStatus.anonymized
             video.anonymized_at = datetime.now(timezone.utc)
-            video.anonymization_coverage = result.coverage
+            video.anonymization_coverage = (result.coverage
+                                            if getattr(settings, "blur_enabled", True) else None)
             video.anonymization_method = result.method
             video.anonymization_meta = json.dumps(result.as_meta())
             # Backfill duration/size if probe gave us better numbers.
@@ -169,8 +183,13 @@ def run_hand_pose(video_id: str) -> None:
     out_key = _hand_pose_key(video_id)
     out_path = storage.local_path(out_key)
 
-    log.info("extracting hand pose for %s", video_id)
-    result = extract_hand_pose(in_path, out_path, video_id)
+    log.info("extracting hand pose for %s (backend=%s)", video_id,
+             getattr(settings, "hand_pose_backend", "mediapipe"))
+    if getattr(settings, "hand_pose_backend", "mediapipe") == "wilor":
+        from .hand_pose import extract_hand_pose_wilor
+        result = extract_hand_pose_wilor(in_path, out_path, video_id)
+    else:
+        result = extract_hand_pose(in_path, out_path, video_id)
     log.info(
         "hand pose %s: %d/%d sampled frames had hands (%.1f%%), sample_fps=%.1f",
         video_id, result.frames_with_any_hand, result.frames_sampled,
@@ -199,6 +218,17 @@ def run_segmentation(video_id: str) -> None:
 
     in_path = storage.local_path(anon_key)
     out_path = storage.local_path(_segments_key(video_id))
+
+    # Human corrections are authoritative — refuse to overwrite verified labels.
+    if out_path.exists():
+        try:
+            existing = json.loads(out_path.read_text())
+            if any(s.get("human_verified") for s in existing.get("segments", [])):
+                log.warning("segmentation skipped for %s: human-verified segments "
+                            "present (delete segments.json to force)", video_id)
+                return
+        except Exception:  # noqa: BLE001
+            pass
 
     log.info("segmenting %s", video_id)
     result = segment_video(in_path, video_id)

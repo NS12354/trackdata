@@ -23,23 +23,22 @@ export default async function OverviewPage() {
   const ov = overview!;
   const recent = videos.slice(0, 6);
   const properties = Object.entries(ov.per_property);
+  const annotated = videos.filter((v) => v.segmented).length;
+  const posed = videos.filter((v) => v.hand_pose_extracted).length;
+  const costUsd = videos.reduce((s, v) => s + (v.segmentation_cost_usd || 0), 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Overview</h1>
-        <p className="text-sm text-muted">Operational summary across processed footage.</p>
+        <p className="text-sm text-muted">Your egocentric capture corpus at a glance.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Footage processed" value={`${ov.total_hours.toFixed(2)} h`} hint={`${ov.video_count} videos`} />
-        <StatCard label="Service events" value={ov.total_service_events} tone="ok" />
-        <StatCard label="Downtime" value={fmtDuration(ov.total_downtime_seconds)} tone="warn" />
-        <StatCard
-          label="Contamination flags"
-          value={ov.total_contamination_flags}
-          tone={ov.total_contamination_flags > 0 ? "danger" : "default"}
-        />
+        <StatCard label="Footage captured" value={`${ov.total_hours.toFixed(2)} h`} hint={`${ov.video_count} videos`} />
+        <StatCard label="Clips annotated" value={`${annotated}/${ov.video_count}`} tone="ok" hint="activity segments" />
+        <StatCard label="Hand pose extracted" value={`${posed}/${ov.video_count}`} hint="21-pt + grasp" />
+        <StatCard label="Annotation cost" value={`$${costUsd.toFixed(2)}`} hint="local VLM" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -74,24 +73,17 @@ export default async function OverviewPage() {
 
         <Panel className="overflow-hidden">
           <div className="border-b border-border px-4 py-3 text-sm font-medium">
-            By property
+            By location
           </div>
           {properties.length === 0 ? (
-            <Empty>No property metrics yet.</Empty>
+            <Empty>No location tags yet — set one on upload.</Empty>
           ) : (
             <ul className="divide-y divide-border">
               {properties.map(([name, p]) => (
                 <li key={name} className="px-4 py-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">{name}</span>
-                    <span className="text-xs text-muted">{fmtDuration(p.total_seconds)}</span>
-                  </div>
-                  <div className="mt-1 flex gap-4 text-xs text-muted">
-                    <span className="text-ok">{p.service_events} service</span>
-                    <span className="text-warn">{fmtDuration(p.downtime_seconds)} idle</span>
-                    {p.contamination_flags > 0 && (
-                      <span className="text-danger">{p.contamination_flags} contam.</span>
-                    )}
+                    <span className="text-xs text-muted">{fmtDuration(p.total_seconds)} of activity</span>
                   </div>
                 </li>
               ))}

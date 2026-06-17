@@ -39,7 +39,28 @@ export const api = {
   getHeadPose: (id: string) => get<HeadPoseResponse>(`/api/videos/${id}/head-pose`),
   getEvents: (id: string) => get<VideoSummary>(`/api/videos/${id}/events`),
   getOverview: () => get<Overview>("/api/metrics/overview"),
+  getProgress: (id: string) =>
+    get<{ stage?: string; pct?: number | null; detail?: string }>(`/api/videos/${id}/progress`),
 };
+
+/** Persist human corrections to a clip's segment timeline (labels, boundaries).
+ * Sends the FULL corrected list plus per-change audit records; the backend
+ * logs every edit and re-derives events. */
+export async function patchSegments(
+  videoId: string,
+  segments: unknown[],
+  edits: unknown[]
+): Promise<SegmentsResponse> {
+  const res = await fetch(`${BASE}/api/videos/${videoId}/segments`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ segments, edits }),
+  });
+  if (!res.ok) {
+    throw new Error(`${res.status}: ${(await res.text().catch(() => "")) || "save failed"}`);
+  }
+  return res.json() as Promise<SegmentsResponse>;
+}
 
 export interface ChatReply {
   answer: string;
@@ -59,10 +80,15 @@ export async function chat(question: string, videoId?: string): Promise<ChatRepl
   return res.json() as Promise<ChatReply>;
 }
 
-/** Direct media URL for the <video> element (auth via query param). */
-export function anonymizedVideoUrl(id: string): string {
-  const q = API_KEY ? `?api_key=${encodeURIComponent(API_KEY)}` : "";
-  return `${BASE}/api/videos/${id}/anonymized${q}`;
+/** Direct media URL for the <video> element (auth via query param).
+ * `version` (e.g. the clip's anonymized_at) busts the browser cache when a
+ * clip is reprocessed — same id, new pixels. */
+export function anonymizedVideoUrl(id: string, version?: string | null): string {
+  const params = new URLSearchParams();
+  if (API_KEY) params.set("api_key", API_KEY);
+  if (version) params.set("v", version);
+  const q = params.toString();
+  return `${BASE}/api/videos/${id}/anonymized${q ? `?${q}` : ""}`;
 }
 
 /** Export bundle (.zip) download URL (auth via query param for <a download>). */

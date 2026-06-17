@@ -344,6 +344,54 @@ def _open_ffmpeg_writer(out_path: Path, meta: VideoMeta):
         return None, "mp4v"
 
 
+def _nvenc_available() -> bool:
+    import shutil as _sh
+    try:
+        if not _sh.which("ffmpeg"):
+            return False
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, timeout=15).stdout
+        return "h264_nvenc" in out
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def passthrough_copy(input_path: Path, output_path: Path) -> AnonymizationResult:
+    """Blur-disabled path: orientation-corrected re-encode with NO face blur.
+
+    Uses the GPU's dedicated NVENC encoder when present (the CPU furnace in the
+    blur path is mostly software x264 encoding), falling back to libx264.
+    For no-bystander footage only — callers gate on settings.blur_enabled.
+    """
+    from .video_meta import probe
+
+    input_path, output_path = Path(input_path), Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    meta = probe(input_path)
+    vf = {0: None, 90: "transpose=1", 180: "hflip,vflip",
+          270: "transpose=2"}.get(meta.rotation % 360)
+    if _nvenc_available():
+        enc = ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23"]
+        codec = "h264 (nvenc)"
+    else:
+        enc = ["-c:v", "libx264", "-crf", "20", "-preset", "veryfast"]
+        codec = "h264 (libx264)"
+    cmd = ["ffmpeg", "-y", "-v", "error", "-noautorotate", "-i", str(input_path)]
+    if vf:
+        cmd += ["-vf", vf]
+    cmd += [*enc, "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
+            str(output_path)]
+    subprocess.run(cmd, check=True)
+    return AnonymizationResult(
+        method="none (blur disabled)", frames_total=meta.frame_count,
+        frames_with_faces=0, frames_blurred=0, total_face_detections=0,
+        tracks=0, rejected_tracks=0, candidate_detections=0,
+        coverage=0.0, raw_detection_coverage=0.0, mean_faces_per_frame=0.0,
+        fps=meta.fps, width=meta.width, height=meta.height,
+        duration_seconds=meta.duration_seconds, output_codec=codec,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Entry point
 # --------------------------------------------------------------------------- #

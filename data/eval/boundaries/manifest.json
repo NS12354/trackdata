@@ -1,0 +1,42 @@
+{
+  "tolerance_seconds": 1.0,
+  "clips": [
+    {
+      "video": "data\\anonymized\\img0077.mp4",
+      "duration_seconds": 43.767,
+      "true_boundaries": [
+        1.0,
+        6.753,
+        14.256,
+        19.508,
+        22.759,
+        24.76,
+        27.511,
+        29.511,
+        33.763,
+        39.015,
+        42.767
+      ],
+      "segments": [],
+      "_note": "Replace true_boundaries with the real interior cut times (s)."
+    },
+    {
+      "video": "data\\anonymized\\img0078.mp4",
+      "duration_seconds": 32.5,
+      "true_boundaries": [
+        0.25,
+        2.5,
+        6.5,
+        10.25,
+        12.25,
+        17.5,
+        22.75,
+        25.5,
+        28.5,
+        30.5
+      ],
+      "segments": [],
+      "_note": "Replace true_boundaries with the real interior cut times (s)."
+    }
+  ]
+}

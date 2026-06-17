@@ -9,8 +9,10 @@ from fastapi import Header, HTTPException, Query, status
 from config import settings
 
 # Allowed video container types (sniffed by magic bytes, not just extension).
-ALLOWED_MIME = {"video/mp4", "video/quicktime", "video/x-m4v"}
-ALLOWED_EXT = {".mp4", ".mov"}
+# ffmpeg/OpenCV ingest all of these; pipeline output is always MP4 regardless.
+ALLOWED_MIME = {"video/mp4", "video/quicktime", "video/x-m4v",
+                "video/x-msvideo", "video/x-matroska", "video/webm"}
+ALLOWED_EXT = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 
 async def require_api_key(

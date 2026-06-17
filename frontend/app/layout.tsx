@@ -1,10 +1,11 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { NavLink } from "@/components/ui";
+import ActivityIndicator from "@/components/ActivityIndicator";
 
 export const metadata: Metadata = {
-  title: "Revisent — Operations",
-  description: "Waste-services video processing & operational dashboard",
+  title: "Revisent — Egocentric Training Data",
+  description: "Egocentric video capture, annotation, and robot-training data pipeline",
 };
 
 export default function RootLayout({
@@ -26,7 +27,9 @@ export default function RootLayout({
             <NavLink href="/upload">Upload</NavLink>
             <NavLink href="/chat">Chat</NavLink>
             <NavLink href="/calculator">Cost calc</NavLink>
-            <span className="ml-auto text-xs text-muted">operator dashboard</span>
+            <span className="ml-auto">
+              <ActivityIndicator />
+            </span>
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-6 py-6">{children}</main>

@@ -1,0 +1,16 @@
+Camera calibration - one time per camera (~10 minutes)
+
+1. Print checkerboard_9x6_20mm.png at 100% scale (no 'fit to page').
+   Verify with a ruler: each square must be exactly 20mm. Tape it to
+   something flat (clipboard, cardboard).
+
+2. With the SAME camera/lens/mode you record footage with (iPhone 1x video),
+   record a ~30 second video slowly moving the board around the frame:
+   near/far, left/right/corners, tilted at different angles. Keep it sharp.
+
+3. Run (from the repo root):
+   backend/.venv/Scripts/python scripts/calibrate_camera.py --video <your_video.MOV> --cols 9 --rows 6 --square-mm 20
+
+That writes backend/camera_intrinsics.json. From then on every clip uses the
+calibrated focal length automatically (it outranks the device preset), and
+wrist-depth accuracy tightens from ~+/-5%% FOV error to ~1%%.

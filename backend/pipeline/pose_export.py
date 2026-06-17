@@ -56,8 +56,11 @@ def skeleton_spec(body_doc: dict) -> dict:
         "limitations": [
             "Monocular: positions are metric-scaled by operator height, not "
             "absolute depth; wrist depth along the image ray is reach-bounded.",
-            "A chest camera never observes the wearer's head or legs — those "
-            "joints are anthropometric priors (provenance=inferred), not measured.",
+            f"A {body_doc.get('camera_mount', 'chest')}-mounted egocentric camera "
+            "never observes the wearer's own head or legs — those joints are "
+            "anthropometric priors (provenance=inferred) or orientation-only "
+            "(provenance=oriented), not position-measured. Filter by confidence "
+            "and provenance per joint.",
         ],
     }
 

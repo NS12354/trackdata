@@ -1,34 +1,44 @@
 "use client";
 
-import { fmtDuration, labelColor } from "@/lib/format";
+import { fmtDuration, fmtPct, labelColor } from "@/lib/format";
 import { Panel, StatCard } from "@/components/ui";
 import type { VideoSummary } from "@/lib/types";
 
-export default function EventMetrics({ summary }: { summary: VideoSummary }) {
+export default function EventMetrics({
+  summary,
+  handCoverage,
+}: {
+  summary: VideoSummary;
+  handCoverage?: number | null;
+}) {
   const tasks = Object.entries(summary.time_per_task).sort((a, b) => b[1] - a[1]);
   const max = Math.max(1, ...tasks.map(([, v]) => v));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Service events" value={summary.service_event_count} tone="ok" />
-        <StatCard label="Downtime" value={fmtDuration(summary.downtime_seconds)} tone="warn" />
+        <StatCard label="Activities" value={summary.event_count} tone="ok" hint="annotated segments" />
         <StatCard
-          label="Contamination"
-          value={summary.contamination_event_count}
-          tone={summary.contamination_event_count > 0 ? "danger" : "default"}
-        />
-        <StatCard
-          label="Active hands"
+          label="Active manipulation"
           value={summary.active_hand_seconds != null ? fmtDuration(summary.active_hand_seconds) : "—"}
           hint="time with detected hands"
+        />
+        <StatCard
+          label="Hand coverage"
+          value={handCoverage != null ? fmtPct(handCoverage) : "—"}
+          hint="frames with a tracked hand"
+        />
+        <StatCard
+          label="Idle"
+          value={fmtDuration(summary.idle_seconds)}
+          tone={summary.idle_seconds > 0 ? "warn" : "default"}
         />
       </div>
 
       <Panel className="p-4">
-        <div className="mb-3 text-sm font-medium">Time per task</div>
+        <div className="mb-3 text-sm font-medium">Time per activity</div>
         {tasks.length === 0 ? (
-          <div className="text-sm text-muted">No events.</div>
+          <div className="text-sm text-muted">No activities annotated yet.</div>
         ) : (
           <div className="space-y-2">
             {tasks.map(([label, secs]) => (

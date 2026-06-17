@@ -24,11 +24,11 @@ from .events import summarize_video
 log = logging.getLogger("revisent.chat")
 
 _SYSTEM = (
-    "You are an assistant that answers questions about what happened in a worker's "
-    "processed camera footage. You are given timestamped activity descriptions and "
-    "summary metrics. Answer ONLY from this data. If it doesn't contain the answer, "
-    "say you can't tell from the footage. Be concise and cite timestamps (mm:ss) "
-    "when relevant. Do not invent details."
+    "You are an assistant that answers questions about what happened in a person's "
+    "egocentric (first-person) camera footage. You are given timestamped activity "
+    "descriptions and summary metrics. Answer ONLY from this data. If it doesn't "
+    "contain the answer, say you can't tell from the footage. Be concise and cite "
+    "timestamps (mm:ss) when relevant. Do not invent details."
 )
 
 
@@ -46,7 +46,7 @@ def _video_context(video_id: str) -> Optional[str]:
     segs = data.get("segments", [])[: settings.chat_max_segments]
     with session_scope() as s:
         v = s.get(Video, video_id)
-        meta = f"file={v.original_filename}, property={v.property_tag or 'n/a'}, " \
+        meta = f"file={v.original_filename}, location={v.property_tag or 'n/a'}, " \
                f"duration={v.duration_seconds or 0:.0f}s" if v else video_id
     summary = summarize_video(video_id)
 
@@ -55,7 +55,7 @@ def _video_context(video_id: str) -> Optional[str]:
                  f"service_events={summary['service_event_count']}, "
                  f"downtime={summary['downtime_seconds']}s, "
                  f"contamination={summary['contamination_event_count']}")
-    lines.append("  timeline (what the worker was doing):")
+    lines.append("  timeline (what the person was doing):")
     for sg in segs:
         desc = (sg.get("description") or sg.get("task_label") or "").strip()
         if desc:
@@ -110,7 +110,7 @@ def derive_scene(descriptions: List[str]) -> str:
     if not joined:
         return ""
     prompt = (
-        "These describe moments in a worker's first-person video:\n" + joined +
+        "These describe moments in a person's first-person video:\n" + joined +
         "\n\nIn 1-3 words, name the overall setting/scene (e.g. 'Car service', "
         "'Warehouse', 'Kitchen'). Reply with ONLY the scene name."
     )

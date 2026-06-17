@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     retain_raw_uploads: bool = True
 
     # --- Anonymization ---
+    # Master switch for face blurring on UPLOADED clips. With it off, uploads
+    # get a fast orientation-corrected passthrough (GPU NVENC when available)
+    # instead of the CPU-heavy detect+blur+encode pass. ONLY for footage with
+    # no bystanders — re-enable before processing anyone else's face.
+    blur_enabled: bool = True
     # Candidate detection threshold — deliberately low so weak frames of a real
     # face are still captured and can be rescued by a confirmed track. Stray
     # false positives that clear this bar are filtered out by track confirmation.
@@ -160,6 +165,28 @@ class Settings(BaseSettings):
     # Light One-Euro smoothing to de-jitter noisy blurry detections WITHOUT lagging
     # fast motion (it adapts: smooths when slow, stays responsive when fast).
     hand_pose_smooth: bool = True
+    # One-Euro tuning: higher min_cutoff = less low-speed smoothing (less lag).
+    # Retuned for 30fps sampling on clean footage; the old 1.5/0.04 visibly
+    # trailed fast hands at 30fps.
+    hand_pose_smooth_min_cutoff: float = 2.0
+    hand_pose_smooth_beta: float = 0.06
+    # MediaPipe classifies handedness PER FRAME (no memory): a lone right hand
+    # occasionally flips to "left" for a few frames. When a single detected hand
+    # is spatially continuous with the OTHER side's recent track, relabel it.
+    hand_pose_handedness_continuity: bool = True
+    # Hand tracking backend:
+    #   "mediapipe" — CPU, fast, landmark regression (hallucinates occluded
+    #                 grasps; bone-consistency 0.711 on real grasp frames).
+    #   "wilor"     — GPU (dedicated env), transformer mesh regression with a
+    #                 MANO prior: occlusion-robust (0.994), and predicts the
+    #                 hand's ABSOLUTE metric camera-frame position = measured
+    #                 wrist depth. ~62 ms/frame on an RTX 5080.
+    hand_pose_backend: str = "mediapipe"  # mediapipe | wilor
+    # Python interpreter of the WiLoR GPU env ("" = data/tmp_wilor_env default).
+    wilor_python: str = ""
+    # Temporal smoother: "oneeuro" (adaptive low-pass) | "kalman" (constant-
+    # velocity prediction — best for per-frame models like WiLoR) | "none".
+    hand_pose_smoother: str = "oneeuro"
 
     # --- Security ---
     # When set, the API requires this key via the `X-API-Key` header. Always
@@ -194,6 +221,46 @@ class Settings(BaseSettings):
     segmentation_sample_fps: float = 1.0
     # Merge/discard segments shorter than this (seconds) to reduce flicker.
     segmentation_min_segment_seconds: float = 1.5
+
+    # --- Boundary detection strategy (Phase 3) ---
+    # How segment *boundaries* are decided:
+    #   "perframe" — classify every sampled frame with the VLM, then cut wherever
+    #                adjacent labels differ (original behavior).
+    #   "fused"    — find cuts from cheap dense signals (frame-diff + the Phase-2
+    #                hand-pose & ego-motion products), then label each segment with
+    #                the VLM ONCE. ~10x fewer VLM calls, sub-second cut precision,
+    #                no flicker. Falls back to whatever signals are present.
+    segmentation_boundary_mode: str = "perframe"  # perframe | fused
+    # Common time-grid resolution (Hz) the fused signals are resampled onto — this
+    # caps achievable cut precision. 4 Hz is a good cost/precision balance.
+    boundary_sample_fps: float = 4.0
+    # No two cuts closer than this (seconds); also the minimum segment length.
+    boundary_min_segment_seconds: float = 2.0
+    # Smoothing applied to each signal before scoring (seconds of moving average).
+    boundary_smooth_seconds: float = 0.75
+    # Half-width (seconds) of the before/after comparison window for the step score.
+    boundary_window_seconds: float = 1.5
+    # LOCAL cut threshold (late fusion): a candidate must clear k std above its
+    # sliding local baseline. Higher k = fewer cuts. ~1.5-2.5 is typical.
+    boundary_threshold_k: float = 1.5
+    # Width (seconds) of the sliding window the local threshold is measured over.
+    # Larger = more global behavior; smaller = more sensitive to local context.
+    boundary_local_window_seconds: float = 4.0
+    # Hard cap on segments per video (keeps the strongest cuts if exceeded).
+    boundary_max_segments: int = 60
+    # Per-signal toggles (a signal is also skipped if its Phase-2 product is absent).
+    boundary_use_frame_diff: bool = True
+    boundary_use_hand_pose: bool = True
+    boundary_use_ego_motion: bool = True
+    # Per-signal fusion weights (tune to trust one signal more on your footage).
+    boundary_weight_frame_diff: float = 1.0
+    boundary_weight_hand_pose: float = 1.0
+    boundary_weight_ego_motion: float = 1.0
+    # Frames sampled per segment in fused mode. With a multi-image-capable
+    # provider (Ollama qwen-VL, Claude) they go in ONE call, ordered, so the
+    # model reasons over what CHANGES across the segment — actions are motion,
+    # not single frames ("massage the neck" vs "dry your hair").
+    boundary_label_samples: int = 3
     # Local Ollama VLM. qwen2.5vl:3b gives sharper, more accurate descriptions and
     # runs on ~16GB machines; moondream is the lighter/faster fallback; qwen2.5vl:7b
     # is best but too heavy for ~16GB. Set ollama_use_json=true for capable models
@@ -214,12 +281,30 @@ class Settings(BaseSettings):
     claude_vlm_model: str = "claude-sonnet-4-6"
 
     # --- Head pose / ego-body (visual odometry) ---
-    # Approximate horizontal field of view of the head camera (degrees), used to
-    # build camera intrinsics for monocular visual odometry. Action/head cams are
-    # wide; set to your camera's actual FOV for better results.
+    # Approximate horizontal field of view of the camera (degrees) — the
+    # fallback when no calibration or device preset applies. Wrist depth divides
+    # by focal length, so FOV error becomes proportional depth error.
     ego_camera_fov_deg: float = 90.0
+    # Infer FOV from the recording device's metadata (iPhone/GoPro presets in
+    # pipeline/intrinsics.py) when no checkerboard calibration exists. A real
+    # calibration (scripts/calibrate_camera.py) always takes precedence.
+    ego_camera_fov_auto: bool = True
+    # The wearer's REAL palm length in cm (wrist crease to the base knuckle of
+    # the middle finger; measure once with a ruler). Replaces MediaPipe's
+    # generic hand-size prior in depth-from-scale, removing its ~5-10% depth
+    # error, and corrects metric grasp aperture. 0 = use MediaPipe's estimate.
+    wearer_palm_length_cm: float = 0.0
     ego_vo_sample_fps: float = 6.0
     ego_vo_orb_features: int = 2000
+
+    # --- Camera mount (body-pose geometry & provenance) ---
+    # Where the wearable camera is mounted. Decides the back-projection geometry
+    # AND what the visual odometry actually measures:
+    #   "chest" — VO measures TORSO orientation (camera rigid on the torso).
+    #   "head"  — forehead-mounted; VO measures HEAD orientation. The torso only
+    #             gets a yaw-only heading proxy from the head (lower confidence),
+    #             and the camera rides on the neck pivot for hand back-projection.
+    camera_mount: str = "chest"  # chest | head
 
     # --- Chest-mount camera geometry (body-pose back-projection) ---
     # Where the camera sits relative to the pelvis, in the body frame (fractions of
@@ -231,10 +316,35 @@ class Settings(BaseSettings):
     # Downward tilt of the mounted camera (degrees); a clipped chest cam usually
     # points slightly down toward the hands/work area.
     ego_chest_mount_pitch_deg: float = 12.0
+
+    # --- Head (forehead) mount camera geometry ---
+    # Same convention as the chest mount: rest-pose position as fractions of
+    # operator height H from the pelvis. A forehead strap sits at ~0.42H, slightly
+    # forward, and is usually tilted further down so the hands stay in frame.
+    ego_head_mount_height_frac: float = 0.42
+    ego_head_mount_forward_frac: float = 0.05
+    ego_head_mount_pitch_deg: float = 20.0
+    # Heads swing much faster than torsos: the torso heading proxy derived from
+    # head VO is low-passed over this window (seconds) so a glance left doesn't
+    # spin the whole estimated body. 0 disables smoothing.
+    ego_torso_yaw_smooth_seconds: float = 1.0
     # Shoulder->wrist reach radius (fraction of H) used to resolve depth along the
     # back-projected image ray. Monocular depth is ambiguous; the 2D ray direction
     # is MEASURED, the depth along it is bounded by arm reach (documented as such).
     ego_arm_reach_frac: float = 0.30
+
+    # --- LeRobot export (Phase 7) ---
+    # "segment": one episode per annotated activity segment, with the VLM
+    #            description as the episode's task string (language-conditioned
+    #            VLA training: pi0/GR00T/OpenVLA consume exactly this).
+    # "clip":    one episode per whole video with a single generic task label.
+    # Segment mode falls back to clip mode for videos without segments.
+    lerobot_episode_mode: str = "segment"  # segment | clip
+    # Drop episodes whose frames almost never contain a MEASURED hand — a
+    # manipulation dataset shouldn't ship hands-free episodes (walking past
+    # things, staring at a screen). Fraction of frames with a measured wrist;
+    # 0 disables filtering. Skips are logged, never silent.
+    lerobot_min_hand_fraction: float = 0.05
 
     # --- Chatbot (Phase 6) ---
     # Answers questions grounded in the activity commentary + events. Local LLM by

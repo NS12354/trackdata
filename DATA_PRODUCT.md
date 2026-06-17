@@ -6,8 +6,9 @@ deploying into waste / demanufacturing. This doc is the map: what's built, how t
 run it, and the handful of steps that need **you**.
 
 ## The thesis (one paragraph)
-A chest camera **measures** the hands (in view) and torso motion (the camera is on
-the body), and **infers** the unseen parts (head, legs). We don't pretend
+A wearable egocentric camera (chest or forehead mount; recorded per clip)
+**measures** the hands (in view) and the rig's motion, and **infers** the unseen
+parts (legs; head on a chest rig). We don't pretend
 otherwise — every joint ships with a `confidence` and a `provenance` flag. The
 sellable wedge is **in-the-wild egocentric manipulation demonstrations** (hands +
 arms + first-person video) at a scale and diversity teleoperation can't reach —
@@ -20,7 +21,7 @@ the exact data bottleneck for VLA / humanoid foundation models.
 |---|---|
 | `body_pose.py` | Per-frame skeleton (17 joints) with confidence + provenance. Wrist placed by **camera-intrinsic back-projection** (2D measured, depth reach-bounded), arms by 2-bone IK, torso oriented by VO, head/legs as labeled priors. |
 | `pose_export.py` | `pose_joints.parquet` (long format) + `skeleton.json` (joint order, kinematic tree, coord system, provenance legend). |
-| `lerobot_export.py` | LeRobot **v2** dataset (the lead format; π0 / HF ecosystem) + structural validator. |
+| `lerobot_export.py` | LeRobot **v2.1** dataset (segment-per-episode, imperative language tasks, gripper channels) + structural validator. For current lerobot (>=0.5, format v3.0) run the official converter: `python -m lerobot.scripts.convert_dataset_v21_to_v30 --repo-id=any/name --root=<dataset> --push-to-hub=false` — **verified loading end-to-end in lerobot 0.5.1** (env: `data/tmp_lerobot_env`). |
 | `smplx_export.py` | SMPL-X joint mapping + per-frame fitting (license-gated weights documented, not shipped). |
 | `capture_meta.py` | Per-clip capture record (camera mount, intrinsics, operator, consent) for the manifest. |
 
@@ -90,3 +91,22 @@ $PY scripts/build_dataset_card.py                  # (re)generate the card
 - The pose **accuracy is unmeasured against ground truth** — step (1) tells you whether
   the current kinematic model is good enough or whether to invest in a learned ego-body
   model (EgoEgo). Don't sell until you have that number. Don't soft-pedal it.
+
+## Model stack assessment & upgrade paths (June 2026)
+
+What runs today, what it's good for, and the next model up when quality demands it:
+
+| Stage | Today | Honest grade | Upgrade path |
+|---|---|---|---|
+| Hands (2D + metric shape) | MediaPipe Hands (legacy solutions API), image + **world landmarks**, gap-fill + One-Euro | Good recall on clean footage; world landmarks give metric hand SHAPE (not camera depth) | MediaPipe Tasks `HandLandmarker` (newer, faster); **WiLoR / HaMeR** (transformer 3D hand mesh) when GPU budget exists — true metric 3D, robust to blur |
+| Wrist depth | Depth-from-hand-scale (real palm size vs apparent px size, pinhole) with reach-bound fallback | A real measurement, accuracy bounded by intrinsics + hand-size estimate | Calibrated intrinsics (`calibrate_camera.py`) tightens it; metric mono-depth (Depth Anything v2) or RGB-D rig replaces it |
+| Ego-motion | Monocular ORB visual odometry | Orientation reliable short-term (84-93% tracked on test clips); translation up-to-scale, drifts | Add IMU (phone capture apps export it); DPVO/DROID-SLAM class for production |
+| Torso (head rig) | Yaw-only heading proxy from head VO, low-passed ~1s | Honest proxy, labeled `oriented` at reduced confidence | Torso IMU, or learned ego-body models (EgoEgo-class) |
+| Faces (privacy) | YuNet + MediaPipe union, temporal tracks | Near-100% recall; known false-positives on face-like objects (plush toys) | Threshold tuning per environment; segmentation-based redaction |
+| Activity labels | qwen2.5vl:7b via Ollama (local, $0), fused boundary detection | Specific, usable open-vocab descriptions; occasional camera-aware phrasing | Claude provider flag exists for quality passes; prompt tuning in `segmentation_providers.py` |
+
+The intake **quality gate** (`pipeline/quality_gate.py`) fronts all of this:
+orientation is decided by local-VLM votes on sampled frames (faces never work on
+ego footage, and hand heuristics proved grip-style-confounded on real clips —
+kept as advisory evidence only), plus exposure and blur screens — bad capture is
+caught before it becomes plausible-looking bad data.

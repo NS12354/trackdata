@@ -43,7 +43,9 @@ export function fmtBytes(n: number | null | undefined): string {
   return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-// Stable color per task/event label for the timeline + chips.
+// Stable color per activity/event label for the timeline + chips. Known
+// taxonomy labels get fixed semantic colors; open-vocabulary labels get a
+// deterministic hue from a hash so every activity is distinguishable.
 const PALETTE: Record<string, string> = {
   service: "#22c55e",
   "moving container": "#22c55e",
@@ -62,5 +64,10 @@ const PALETTE: Record<string, string> = {
 };
 
 export function labelColor(label: string): string {
-  return PALETTE[label] || "#64748b";
+  if (PALETTE[label]) return PALETTE[label];
+  let h = 0;
+  for (let i = 0; i < label.length; i++) {
+    h = (h * 31 + label.charCodeAt(i)) >>> 0;
+  }
+  return `hsl(${h % 360} 55% 52%)`;
 }

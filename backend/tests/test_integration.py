@@ -112,7 +112,7 @@ def test_upload_processes_end_to_end():
 
     # Hand-pose JSON is available with sampling metadata.
     hp = client.get(f"/api/videos/{vid}/hand-pose", headers=AUTH).json()
-    assert hp["metadata"]["model"] == "mediapipe_hands"
+    assert hp["metadata"]["model"] in ("mediapipe_hands", "wilor")
     assert isinstance(hp["frames"], list) and len(hp["frames"]) > 0
 
     # Segments are available with $0 cost and the task taxonomy.

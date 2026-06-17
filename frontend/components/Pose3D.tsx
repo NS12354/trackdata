@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { graspAperture, interpolateHandsAt, type HandsAt } from "@/lib/pose";
 import type { HandPoseFrame, HeadPoseFrameT, Landmark } from "@/lib/types";
 
 const Plot = dynamic(() => import("./plotly-client"), { ssr: false });
@@ -14,198 +15,75 @@ const HAND_CONNECTIONS: [number, number][] = [
   [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
 ];
 
-type V3 = [number, number, number];
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const mul = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const len = (a: V3) => Math.hypot(a[0], a[1], a[2]);
-const norm = (a: V3): V3 => {
-  const l = len(a) || 1;
-  return [a[0] / l, a[1] / l, a[2] / l];
-};
+// (The old hidden body-rig renderer lived here; it duplicated lib/pose.ts
+// and was unused. Recover from git history / lib/pose.ts if ever needed.)
 
-// 2-bone IK: from shoulder S to target T, with bone lengths Lu, Lf. Returns elbow.
-function ik(S: V3, T: V3, Lu: number, Lf: number): { elbow: V3; wrist: V3 } {
-  let dir = sub(T, S);
-  let d = len(dir);
-  const dmax = Lu + Lf - 0.001;
-  const dmin = Math.abs(Lu - Lf) + 0.001;
-  d = Math.max(dmin, Math.min(d, dmax));
-  const n = norm(dir);
-  const wrist = add(S, mul(n, d));
-  const a = (Lu * Lu + d * d - Lf * Lf) / (2 * d);
-  const h = Math.sqrt(Math.max(0, Lu * Lu - a * a));
-  // bend the elbow down-and-back
-  let ref: V3 = [0, -1, -0.3];
-  let perp = sub(ref, mul(n, dot(ref, n)));
-  perp = norm(perp);
-  const elbow = add(add(S, mul(n, a)), mul(perp, h));
-  return { elbow, wrist };
-}
+// Camera-view hand rendering: x = image left->right, z(up) = image bottom->top
+// (matches what you see in the video player), y = depth toward the viewer. The
+// hand tints amber when the grasp closes — the same gripper signal we export.
+//
+// When METRIC world landmarks exist, the hand SHAPE comes from them (meters,
+// drawn at constant real size — no perspective shrink), anchored at the image
+// wrist position. Without them we fall back to image landmarks (shape only,
+// apparent size).
+const WORLD_SCALE = 2.2; // plot units per meter for the metric hand shape
 
-// Map a hand wrist landmark (normalized image coords) into body space (meters).
-function wristTarget(w: Landmark | undefined, H: number, side: number, sh: V3): V3 {
-  if (!w) return add(sh, [side * 0.05, -0.38 * H, 0.12 * H]);
-  const x = (w[0] - 0.5) * 0.9 * H;
-  const y = 0.85 * H - (0.12 + w[1] * 0.5) * H;
-  const z = (0.28 + (1 - w[1]) * 0.12) * H;
-  return [x, y, z];
-}
+function handTraces(lms: Landmark[] | null, world: Landmark[] | null | undefined,
+                    base: string, ar: number) {
+  if (!lms || lms.length < 21) return [];
+  const aperture = graspAperture(lms);
+  const color = aperture != null && aperture <= 0.3 ? "#f59e0b" : base;
 
-// Rotate point p around a pivot c — X axis (lean fwd/back) and Y axis (turn).
-const rotX = (p: V3, c: V3, a: number): V3 => {
-  const y = p[1] - c[1], z = p[2] - c[2], ca = Math.cos(a), sa = Math.sin(a);
-  return [p[0], c[1] + y * ca - z * sa, c[2] + y * sa + z * ca];
-};
-const rotY = (p: V3, c: V3, a: number): V3 => {
-  const x = p[0] - c[0], z = p[2] - c[2], ca = Math.cos(a), sa = Math.sin(a);
-  return [c[0] + x * ca + z * sa, p[1], c[2] - x * sa + z * ca];
-};
-export function quatToEuler(q: [number, number, number, number]) {
-  const [w, x, y, z] = q;
-  const pitch = Math.asin(Math.max(-1, Math.min(1, 2 * (w * y - z * x))));
-  const yaw = Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z));
-  const roll = Math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y));
-  return { yaw, pitch, roll };
-}
-
-// Render a hand at a body-space wrist anchor. Uses the live 21-point landmarks
-// when the hand is tracked; otherwise draws a static "resting" hand so BOTH
-// hands are always shown — an untracked/idle hand stays stagnant at the posed
-// body's side. plotly axes here: x=right, y=depth(z), z=up(y).
-function handAtWrist(wrist: V3, lms: Landmark[] | null, color: string) {
-  const lineTrace = (pairs: [V3, V3][]) => {
-    const x: (number | null)[] = [], y: (number | null)[] = [], z: (number | null)[] = [];
-    for (const [a, b] of pairs) { x.push(a[0], b[0], null); y.push(a[2], b[2], null); z.push(a[1], b[1], null); }
-    return { x, y, z, type: "scatter3d", mode: "lines", line: { color, width: 4 }, hoverinfo: "skip", showlegend: false };
-  };
-  if (lms && lms.length >= 21) {
-    // Attach the measured hand at the body wrist: positions relative to the
-    // hand's own wrist (landmark 0), scaled from normalized-image to body meters.
-    const w0 = lms[0], s = 0.7;
-    const P: V3[] = lms.map((p) => [
-      wrist[0] + (p[0] - w0[0]) * s,
-      wrist[1] - (p[1] - w0[1]) * s,
-      wrist[2] + (p[2] - w0[2]) * s,
+  let P: [number, number, number][];
+  if (world && world.length >= 21) {
+    // Anchor = image wrist; shape = metric world offsets (x right, y down -> up,
+    // z away-from-camera -> depth). The scene box is stretched horizontally by
+    // the video aspect ratio, so metric x-offsets divide by it to keep the
+    // hand's REAL proportions on wide and portrait clips alike.
+    const ax = lms[0][0], au = 1 - lms[0][1];
+    P = world.map((p) => [
+      ax + ((p[0] - world[0][0]) * WORLD_SCALE) / ar,
+      (p[2] - world[0][2]) * WORLD_SCALE,
+      au - (p[1] - world[0][1]) * WORLD_SCALE,
     ]);
-    const bones = HAND_CONNECTIONS.map(([a, b]) => [P[a], P[b]] as [V3, V3]);
-    return [
-      lineTrace(bones),
-      { x: P.map((p) => p[0]), y: P.map((p) => p[2]), z: P.map((p) => p[1]),
-        type: "scatter3d", mode: "markers", marker: { color, size: 2.5 }, hoverinfo: "skip", showlegend: false },
-    ];
+  } else {
+    P = lms.map((p) => [p[0], p[2] * 2, 1 - p[1]]);
   }
-  // Static resting hand: a small fan of fingers hanging from the wrist.
-  const rest: [V3, V3][] = [-0.045, -0.022, 0, 0.022, 0.045].map((dx) => {
-    const knuckle: V3 = [wrist[0] + dx, wrist[1] - 0.02, wrist[2] + 0.02];
-    const tip: V3 = [wrist[0] + dx * 1.1, wrist[1] - 0.1, wrist[2] + 0.05];
-    return [knuckle, tip] as [V3, V3];
-  });
-  rest.push([wrist, [wrist[0], wrist[1] - 0.04, wrist[2] + 0.02]]);
-  return [lineTrace(rest)];
-}
 
-function bodyTraces(
-  H: number,
-  leftHand: Landmark[] | null,
-  rightHand: Landmark[] | null,
-  head: { yaw: number; pitch: number; roll: number } | null
-) {
-  const joints: Record<string, V3> = {
-    headTop: [0, H, 0],
-    nose: [0, 0.95 * H, 0.06 * H],
-    neck: [0, 0.85 * H, 0],
-    chest: [0, 0.72 * H, 0.02 * H],
-    pelvis: [0, 0.55 * H, 0],
-    lSh: [-0.11 * H, 0.83 * H, 0],
-    rSh: [0.11 * H, 0.83 * H, 0],
-    lHip: [-0.09 * H, 0.55 * H, 0],
-    rHip: [0.09 * H, 0.55 * H, 0],
-    lKnee: [-0.09 * H, 0.28 * H, 0.03 * H],
-    rKnee: [0.09 * H, 0.28 * H, 0.03 * H],
-    lAnk: [-0.09 * H, 0.03 * H, 0.05 * H],
-    rAnk: [0.09 * H, 0.03 * H, 0.05 * H],
-  };
-  // Drive the upper body with the MEASURED head pose: lean the torso by head
-  // pitch (look down → lean forward), turn by head yaw, around the pelvis; the
-  // head/neck get extra rotation on top.
-  if (head) {
-    const pelvis = joints.pelvis;
-    const lean = head.pitch * 0.6;
-    const turn = head.yaw * 0.7;
-    for (const k of ["neck", "chest", "lSh", "rSh", "nose", "headTop"]) {
-      joints[k] = rotX(rotY(joints[k], pelvis, turn), pelvis, lean);
-    }
-    const neck = joints.neck;
-    for (const k of ["nose", "headTop"]) {
-      joints[k] = rotX(rotY(joints[k], neck, head.yaw * 0.3), neck, head.pitch * 0.4);
-    }
-  }
-  const lSh = joints.lSh, rSh = joints.rSh;
-  const Lu = 0.17 * H,
-    Lf = 0.15 * H;
-  const lArm = ik(lSh, wristTarget(leftHand?.[0], H, -1, lSh), Lu, Lf);
-  const rArm = ik(rSh, wristTarget(rightHand?.[0], H, 1, rSh), Lu, Lf);
-
-  const torso: [V3, V3][] = [
-    [joints.headTop, joints.neck], [joints.neck, joints.chest], [joints.chest, joints.pelvis],
-    [joints.neck, lSh], [joints.neck, rSh],
-    [joints.pelvis, joints.lHip], [joints.pelvis, joints.rHip],
-    [joints.lHip, joints.lKnee], [joints.lKnee, joints.lAnk],
-    [joints.rHip, joints.rKnee], [joints.rKnee, joints.rAnk],
-  ];
-  const seg = (segs: [V3, V3][]) => {
-    const x: (number | null)[] = [], y: (number | null)[] = [], z: (number | null)[] = [];
-    for (const [a, b] of segs) {
-      // plotly: x=right, y=forward(depth), z=up
-      x.push(a[0], b[0], null); y.push(a[2], b[2], null); z.push(a[1], b[1], null);
-    }
-    return { x, y, z };
-  };
-  const line = (s: ReturnType<typeof seg>, color: string, w = 5) => ({
-    ...s, type: "scatter3d", mode: "lines", line: { color, width: w }, hoverinfo: "skip", showlegend: false,
-  });
-  return [
-    line(seg(torso), "#94a3b8", 5),
-    line(seg([[lSh, lArm.elbow], [lArm.elbow, lArm.wrist]]), "#22c55e", 6),
-    line(seg([[rSh, rArm.elbow], [rArm.elbow, rArm.wrist]]), "#ef4444", 6),
-    {
-      x: [joints.headTop[0]], y: [joints.headTop[2]], z: [joints.headTop[1]],
-      type: "scatter3d", mode: "markers", marker: { color: "#3b82f6", size: 6 },
-      hoverinfo: "skip", showlegend: false,
-    },
-    // Both hands, always: live when tracked, static-resting at the side otherwise.
-    ...handAtWrist(lArm.wrist, leftHand, "#22c55e"),
-    ...handAtWrist(rArm.wrist, rightHand, "#38bdf8"),
-  ];
-}
-
-function handTraces(lms: Landmark[] | null, color: string) {
-  if (!lms) return [];
   const px: (number | null)[] = [], py: (number | null)[] = [], pz: (number | null)[] = [];
   for (const [a, b] of HAND_CONNECTIONS) {
-    px.push(lms[a][0], lms[b][0], null);
-    py.push(lms[a][2], lms[b][2], null);
-    pz.push(-lms[a][1], -lms[b][1], null);
+    px.push(P[a][0], P[b][0], null);
+    py.push(P[a][1], P[b][1], null);
+    pz.push(P[a][2], P[b][2], null);
   }
   return [
-    { x: px, y: py, z: pz, type: "scatter3d", mode: "lines", line: { color, width: 4 }, hoverinfo: "skip", showlegend: false },
+    { x: px, y: py, z: pz, type: "scatter3d", mode: "lines", line: { color, width: 5 }, hoverinfo: "skip", showlegend: false },
     {
-      x: lms.map((p) => p[0]), y: lms.map((p) => p[2]), z: lms.map((p) => -p[1]),
-      type: "scatter3d", mode: "markers", marker: { color: "#ef4444", size: 3 },
+      x: P.map((p) => p[0]), y: P.map((p) => p[1]), z: P.map((p) => p[2]),
+      type: "scatter3d", mode: "markers", marker: { color, size: 2.5 },
       hoverinfo: "skip", showlegend: false,
     },
   ];
 }
 
-const SCENE = {
-  bgcolor: "#0b0e13",
-  xaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "X" },
-  yaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "Y" },
-  zaxis: { color: "#64748b", gridcolor: "#27313f", showspikes: false, title: "Z" },
-  aspectmode: "data" as const,
+// Fixed frame so the view doesn't rescale as hands move: x/up span the camera
+// image [0,1]; ticks hidden (normalized units carry no meaning for the viewer).
+const AXIS = {
+  color: "#64748b", gridcolor: "#27313f", showspikes: false,
+  showticklabels: false, title: "", zeroline: false,
 };
+// Scene box mirrors the video frame's proportions: x spans the image width,
+// z the height, so the panel matches what you see in the player whether the
+// clip is portrait (9:16) or wide (16:9).
+const makeScene = (ar: number) => ({
+  bgcolor: "#0b0e13",
+  xaxis: { ...AXIS, range: [0, 1] },
+  yaxis: { ...AXIS, range: [-0.4, 0.4] },
+  zaxis: { ...AXIS, range: [0, 1] },
+  aspectmode: "manual" as const,
+  aspectratio: { x: ar, y: 0.6, z: 1 },
+  camera: { eye: { x: 0, y: -1.9, z: 0.15 }, up: { x: 0, y: 0, z: 1 } },
+});
 const LAYOUT_BASE = {
   paper_bgcolor: "#141a22",
   margin: { l: 0, r: 0, t: 0, b: 0 },
@@ -224,40 +102,28 @@ export default function Pose3D({
   headFrames: HeadPoseFrameT[];
   operatorHeightCm: number;
 }) {
-  const [frame, setFrame] = useState<HandPoseFrame | null>(frames[0] ?? null);
-  const [head, setHead] = useState<HeadPoseFrameT | null>(headFrames[0] ?? null);
+  const [hands, setHands] = useState<HandsAt | null>(null);
+  // Video aspect ratio (w/h), read from the element once metadata loads —
+  // drives the 3D box proportions. Portrait default until known.
+  const [ar, setAr] = useState(9 / 16);
   const lastTs = useRef(-1);
-  // Last-seen landmarks per hand, so a hand that stops being detected stays
-  // stagnant (resting at the body's side) instead of flickering out.
-  const lastLeft = useRef<Landmark[] | null>(null);
-  const lastRight = useRef<Landmark[] | null>(null);
 
   useEffect(() => {
     const hTimes = frames.map((f) => f.timestamp_ms);
-    const kTimes = headFrames.map((f) => f.timestamp_ms);
-    const nearest = <T,>(arr: T[], times: number[], ms: number): T | null => {
-      if (!arr.length) return null;
-      let lo = 0, hi = times.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (times[mid] < ms) lo = mid + 1;
-        else hi = mid;
-      }
-      if (lo > 0 && Math.abs(times[lo - 1] - ms) < Math.abs(times[lo] - ms)) lo -= 1;
-      return arr[lo];
-    };
     let raf = 0;
     const tick = () => {
       const v = videoRef.current;
       if (v) {
+        if (v.videoWidth > 0 && v.videoHeight > 0) {
+          const a = Math.min(2.5, Math.max(0.4, v.videoWidth / v.videoHeight));
+          setAr((prev) => (Math.abs(prev - a) > 0.01 ? a : prev));
+        }
         const ms = v.currentTime * 1000;
-        if (Math.abs(ms - lastTs.current) > 80) {
+        if (Math.abs(ms - lastTs.current) > 50) {
           lastTs.current = ms;
-          const nf = nearest(frames, hTimes, ms);
-          setFrame(nf);
-          if (nf?.left_hand_landmarks) lastLeft.current = nf.left_hand_landmarks;
-          if (nf?.right_hand_landmarks) lastRight.current = nf.right_hand_landmarks;
-          setHead(nearest(headFrames, kTimes, ms));
+          // Interpolated between pose samples so the panel tracks the playhead
+          // instead of stepping at the 10fps sampling rate.
+          setHands(interpolateHandsAt(frames, hTimes, ms));
         }
       }
       raf = requestAnimationFrame(tick);
@@ -266,24 +132,33 @@ export default function Pose3D({
     return () => cancelAnimationFrame(raf);
   }, [videoRef, frames, headFrames]);
 
-  const H = (operatorHeightCm || 170) / 100;
-  const headEuler = head?.tracked ? quatToEuler(head.quaternion) : null;
-  // Effective hands: live this frame, else the last-seen pose (kept stagnant).
-  const effLeft = frame?.left_hand_landmarks ?? lastLeft.current;
-  const effRight = frame?.right_hand_landmarks ?? lastRight.current;
+  // Only hands present at the CURRENT playhead — no stale ghosts. An absent
+  // hand simply isn't drawn (the legend dims to show which is which).
+  const left = hands?.left ?? null;
+  const right = hands?.right ?? null;
+  const metric = !!(hands?.leftWorld || hands?.rightWorld);
   const handData = [
-    ...handTraces(effLeft, "#22c55e"),
-    ...handTraces(effRight, "#38bdf8"),
+    ...handTraces(left, hands?.leftWorld, "#22c55e", ar),
+    ...handTraces(right, hands?.rightWorld, "#38bdf8", ar),
   ];
   const hasHands = handData.length > 0;
 
   return (
     <div className="space-y-3">
-      <Panel3D title="3D hand pose">
+      <Panel3D
+        title={
+          <span className="flex items-center gap-3">
+            <span>3D hands · {metric ? "metric shape" : "camera view"}</span>
+            <LegendDot color="#22c55e" label="left" active={!!left} />
+            <LegendDot color="#38bdf8" label="right" active={!!right} />
+            <LegendDot color="#f59e0b" label="closed grasp" active />
+          </span>
+        }
+      >
         {hasHands ? (
           <Plot
             data={handData as any}
-            layout={{ ...LAYOUT_BASE, scene: SCENE } as any}
+            layout={{ ...LAYOUT_BASE, scene: makeScene(ar) } as any}
             config={{ displayModeBar: false, responsive: true } as any}
             style={{ width: "100%", height: "240px" }}
             useResizeHandler
@@ -292,14 +167,11 @@ export default function Pose3D({
           <Empty>No hand detected at this moment</Empty>
         )}
       </Panel3D>
-      {/* Body-pose (head-driven estimate) panel hidden — it's an INFERRED body
-          (chest cam can't see torso/legs) and reads as weak to sophisticated
-          buyers. Code kept (bodyTraces) for internal use / future. */}
     </div>
   );
 }
 
-function Panel3D({ title, children }: { title: string; children: React.ReactNode }) {
+function Panel3D({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-border bg-panel">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-xs text-muted">
@@ -308,6 +180,15 @@ function Panel3D({ title, children }: { title: string; children: React.ReactNode
       </div>
       {children}
     </div>
+  );
+}
+
+function LegendDot({ color, label, active }: { color: string; label: string; active: boolean }) {
+  return (
+    <span className={`flex items-center gap-1 text-[10px] ${active ? "" : "opacity-35"}`}>
+      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+      {label}
+    </span>
   );
 }
 function Empty({ children }: { children: React.ReactNode }) {

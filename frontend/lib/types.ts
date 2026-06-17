@@ -33,6 +33,7 @@ export interface Segment {
   confidence: number;
   description: string;
   duration_seconds: number;
+  human_verified?: boolean;
 }
 
 export interface SegmentsResponse {
@@ -53,6 +54,10 @@ export interface HandPoseFrame {
   timestamp_ms: number;
   left_hand_landmarks: Landmark[] | null;
   right_hand_landmarks: Landmark[] | null;
+  // METRIC world landmarks (meters, hand-centered) — present on clips
+  // processed after world-landmark capture shipped; absent on older data.
+  left_world_landmarks?: Landmark[] | null;
+  right_world_landmarks?: Landmark[] | null;
   left_confidence: number | null;
   right_confidence: number | null;
 }

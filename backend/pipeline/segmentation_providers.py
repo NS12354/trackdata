@@ -57,13 +57,32 @@ _CAPTION_PROMPT = (
     + ", ".join(TASK_TAXONOMY) + "."
 )
 
-# Open mode: general-purpose, no fixed taxonomy. Describe what the person is doing
-# (action + object) in natural language — this is the commentary the chatbot reads.
-# Kept simple/declarative: tiny VLMs (moondream) reliably caption with this phrasing
-# but return empty on long multi-clause prompts.
+# Open mode: general-purpose, no fixed taxonomy. The answer doubles as the
+# episode TASK STRING in the LeRobot export, so we ask for an IMPERATIVE
+# command (VLA recipes like pi0/OpenVLA train on "pick up the X"-style
+# instructions, not third-person captions). Kept to one compact instruction:
+# tiny VLMs return empty on long multi-clause prompts.
 _OPEN_PROMPT = (
-    "Describe what the person in this image is doing in one short sentence, "
-    "including any object they are handling."
+    "This is a first-person view of someone performing an action with their "
+    "hands. State the action as one short imperative command naming the object, "
+    "as if instructing a robot. Example: 'pick up the paper towel roll'. "
+    "If hands are not acting on anything, state what is happening in one short "
+    "sentence instead."
+)
+
+# Multi-frame variant: the images are ORDERED samples from one segment, so the
+# model can reason over what CHANGES — which is what an action is. A single
+# frame of a massage gun near a head reads as "dry your hair"; the motion
+# across frames disambiguates.
+_OPEN_PROMPT_MULTI = (
+    "These images are frames in CHRONOLOGICAL ORDER from one continuous action, "
+    "filmed by a HEAD-MOUNTED camera. The camera viewpoint always shifts between "
+    "frames — IGNORE camera motion entirely (never say move/zoom/look/walk "
+    "unless no hands are visible). Describe what the person's HANDS do to an "
+    "object across the frames, as one short imperative command naming the "
+    "object, like an instruction to a robot. Example: 'pick up the paper towel "
+    "roll'. Only if no hands are visible in any frame, state where the person "
+    "is going in one short sentence."
 )
 
 # Common words to ignore when deriving a short activity label for grouping.
@@ -73,6 +92,16 @@ _STOP = {
     "shows", "appears", "seems", "frame", "camera", "this", "that", "it", "be",
     "being", "doing", "while", "as", "from", "into", "near", "by", "for",
 }
+
+
+def _clean_action_text(text: str) -> str:
+    """One imperative command from a possibly chatty VLM reply: first
+    non-empty line, markdown/numbering stripped."""
+    for line in text.splitlines():
+        line = re.sub(r"^[\s\d\.\)\-\*#]+", "", line).replace("**", "").strip()
+        if line:
+            return line
+    return text.strip()
 
 
 def _derive_activity(text: str, n: int = 4) -> str:
@@ -148,10 +177,11 @@ class OllamaVLMProvider:
         self.url = settings.ollama_base_url.rstrip("/") + "/api/chat"
         self.timeout = settings.ollama_timeout_seconds
 
-    def _chat(self, prompt: str, b64: str, json_mode: bool = False, temperature: float = 0.0) -> str:
+    def _chat(self, prompt: str, b64s, json_mode: bool = False, temperature: float = 0.0) -> str:
+        images = [b64s] if isinstance(b64s, str) else list(b64s)
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+            "messages": [{"role": "user", "content": prompt, "images": images}],
             "stream": False,
             "options": {"temperature": temperature, "num_ctx": settings.ollama_num_ctx},
         }
@@ -160,6 +190,24 @@ class OllamaVLMProvider:
         resp = requests.post(self.url, json=payload, timeout=self.timeout)
         resp.raise_for_status()
         return resp.json().get("message", {}).get("content", "").strip()
+
+    def classify_multi(self, jpeg_list: list) -> tuple[FrameLabel, float]:
+        """One call over ORDERED frames from a single segment — temporal context
+        (what changes between frames) is what defines the action."""
+        if len(jpeg_list) == 1:
+            return self.classify(jpeg_list[0])
+        b64s = [base64.b64encode(j).decode() for j in jpeg_list]
+        if settings.segmentation_mode == "open":
+            text = self._chat(_OPEN_PROMPT_MULTI, b64s, temperature=0.2)
+            if not text:
+                return self.classify(jpeg_list[len(jpeg_list) // 2])
+            text = _clean_action_text(text)
+            return FrameLabel(task=_derive_activity(text), confidence=0.7,
+                              description=text, raw=text[:500]), 0.0
+        preamble = ("These images are chronological frames from ONE continuous task. ")
+        content = self._chat(preamble + _JSON_PROMPT, b64s,
+                             json_mode=settings.ollama_use_json)
+        return _parse_label(content), 0.0
 
     def classify(self, jpeg_bytes: bytes) -> tuple[FrameLabel, float]:
         b64 = base64.b64encode(jpeg_bytes).decode()
@@ -231,6 +279,28 @@ class ClaudeVLMProvider:
                 + msg.usage.output_tokens * self._OUT_PER_TOK)
         if open_mode:
             return FrameLabel(task=_derive_activity(text), confidence=0.8,
+                              description=text, raw=text[:500]), cost
+        return _parse_label(text), cost
+
+    def classify_multi(self, jpeg_list: list) -> tuple[FrameLabel, float]:
+        """One call over ORDERED frames from a single segment."""
+        if len(jpeg_list) == 1:
+            return self.classify(jpeg_list[0])
+        open_mode = settings.segmentation_mode == "open"
+        prompt = _OPEN_PROMPT_MULTI if open_mode else (
+            "These images are chronological frames from ONE continuous task. " + _JSON_PROMPT)
+        content = [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                         "data": base64.b64encode(j).decode()}}
+            for j in jpeg_list
+        ] + [{"type": "text", "text": prompt}]
+        msg = self.client.messages.create(model=self.model, max_tokens=200,
+                                          messages=[{"role": "user", "content": content}])
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+        cost = (msg.usage.input_tokens * self._IN_PER_TOK
+                + msg.usage.output_tokens * self._OUT_PER_TOK)
+        if open_mode:
+            return FrameLabel(task=_derive_activity(text), confidence=0.85,
                               description=text, raw=text[:500]), cost
         return _parse_label(text), cost
 
