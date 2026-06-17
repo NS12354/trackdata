@@ -146,19 +146,16 @@ def extract_hand_pose(
     left_count = 0
     right_count = 0
 
+    from .hand_pose_providers import get_hand_pose_provider
+    provider = get_hand_pose_provider()
     swap = settings.hand_pose_swap_handedness
+    eval_cap = settings.hand_pose_eval_max_frames  # 0 = no cap
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise ValueError(f"could not open video: {video_path}")
     try:
-        with mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=settings.hand_pose_max_hands,
-            model_complexity=settings.hand_pose_model_complexity,
-            min_detection_confidence=settings.hand_pose_min_detection_confidence,
-            min_tracking_confidence=settings.hand_pose_min_tracking_confidence,
-        ) as hands:
+        with provider:
             idx = 0
             while True:
                 ok, frame = cap.read()
@@ -171,24 +168,8 @@ def extract_hand_pose(
 
                 frame = apply_rotation(frame, meta.rotation)
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                results = hands.process(rgb)
-
-                left: Optional[List[List[float]]] = None
-                right: Optional[List[List[float]]] = None
-                lc: Optional[float] = None
-                rc: Optional[float] = None
-
-                if results.multi_hand_landmarks and results.multi_handedness:
-                    for lm, handed in zip(results.multi_hand_landmarks, results.multi_handedness):
-                        cls = handed.classification[0]
-                        label = cls.label  # "Left" / "Right"
-                        if swap:
-                            label = "Right" if label == "Left" else "Left"
-                        coords = _landmarks_to_list(lm)
-                        if label == "Left":
-                            left, lc = coords, float(cls.score)
-                        else:
-                            right, rc = coords, float(cls.score)
+                fh = provider.detect(rgb)  # FrameHands (already handedness-resolved)
+                left, lc, right, rc = fh.left, fh.left_conf, fh.right, fh.right_conf
 
                 if left is not None or right is not None:
                     frames_with_any += 1
@@ -206,6 +187,8 @@ def extract_hand_pose(
 
                 frames_sampled += 1
                 idx += 1
+                if eval_cap and frames_sampled >= eval_cap:
+                    break
     finally:
         cap.release()
 
@@ -245,14 +228,14 @@ def extract_hand_pose(
     # with the file.
     schema_meta = {
         b"video_id": video_id.encode(),
-        b"model": b"mediapipe_hands",
+        b"model": provider.name.encode(),
         b"landmark_count": b"21",
         b"coord_order": b"x,y,z (normalized; x,y in [0,1], z relative depth)",
         b"source_fps": str(src_fps).encode(),
         b"sample_fps": str(round(effective_sample_fps, 4)).encode(),
         b"sample_stride": str(stride).encode(),
         b"handedness_swapped": str(swap).encode(),
-        b"handedness_note": b"MediaPipe assumes a mirrored image; swapped for forward-facing chest cam",
+        b"handedness_note": provider.handedness_note.encode(),
     }
     table = table.replace_schema_metadata(schema_meta)
     pq.write_table(table, output_path)

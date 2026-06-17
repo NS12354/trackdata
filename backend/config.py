@@ -187,6 +187,19 @@ class Settings(BaseSettings):
     # smears blur onto non-PII neighbours.
     text_box_padding: float = 0.1
 
+    # --- Hand pose provider ---
+    # "mediapipe" = local MediaPipe Hands (default, free). "wilor" = lab-grade
+    # egocentric model via a Replicate GPU endpoint (better on own-hands footage;
+    # paid, sends frames to Replicate). Per-frame API calls are slow/costly — use a
+    # short clip or low sample_fps + hand_pose_eval_max_frames for evaluation.
+    hand_pose_provider: str = "mediapipe"  # mediapipe | wilor
+    replicate_api_token: str = ""
+    # The exact Replicate model VERSION hash for WiLoR (find it on the model page).
+    wilor_replicate_version: str = ""
+    # Cap frames sent to the paid provider (0 = no cap). Set e.g. 60 for a cheap
+    # side-by-side eval without processing the whole clip.
+    hand_pose_eval_max_frames: int = 0
+
     # --- Hand pose (Phase 2, MediaPipe Hands) ---
     # Frames per second to sample for hand-keypoint extraction. 10fps keeps CPU
     # cost down and is smooth enough for the dashboard overlay; recorded in the
