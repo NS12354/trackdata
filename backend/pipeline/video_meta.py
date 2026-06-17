@@ -67,7 +67,12 @@ def _ffprobe_rotation(path: Path) -> int:
             rot = int(tag)
         for sd in st.get("side_data_list", []):
             if "rotation" in sd:
-                rot = int(sd["rotation"])
+                # Display-Matrix side-data uses the OPPOSITE sign of the legacy
+                # `rotate` tag: side-data rotation=-90 == legacy rotate=90 ==
+                # "rotate 90° CLOCKWISE to display upright". apply_rotation()/the
+                # ffmpeg transpose treat their arg as clockwise degrees, so negate
+                # the side-data value to match. (Was the source of upside-down output.)
+                rot = -int(sd["rotation"])
         return rot % 360
     except Exception:
         return 0
