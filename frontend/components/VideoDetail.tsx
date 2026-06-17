@@ -62,26 +62,33 @@ export default function VideoDetail({
       .catch(() => {});
   }, [video.camera_model]);
   useEffect(() => {
-    if (vid.status !== "uploaded" && vid.status !== "processing") return;
+    // Keep polling until the WHOLE pipeline is done. Hand-pose and segmentation
+    // run AFTER status flips to "anonymized", so we must keep watching past it or
+    // the pose overlay / task timeline never appear without a manual reload.
+    if (vid.status === "processed" || vid.status === "failed") return;
     let alive = true;
     const tick = async () => {
       try {
         const next = await api.getVideo(video.id);
         if (!alive) return;
+        // Refresh the server-rendered page whenever a new artifact lands (the
+        // anonymized video, hand pose, or segments) so it shows up live.
+        const changed =
+          next.status !== vid.status ||
+          next.hand_pose_extracted !== vid.hand_pose_extracted ||
+          next.segmented !== vid.segmented;
         setVid(next);
-        // Once it leaves the processing states, reload to fetch the now-ready
-        // anonymized video + pose/segments (server-rendered on the page).
-        if (next.status !== "uploaded" && next.status !== "processing") router.refresh();
+        if (changed) router.refresh();
       } catch {
         /* transient — keep polling */
       }
     };
-    const h = setInterval(tick, 1500);
+    const h = setInterval(tick, 2000);
     return () => {
       alive = false;
       clearInterval(h);
     };
-  }, [vid.status, video.id, router]);
+  }, [vid.status, vid.hand_pose_extracted, vid.segmented, video.id, router]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [currentTime, setCurrentTime] = useState(0);
